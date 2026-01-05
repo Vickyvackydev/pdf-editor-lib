@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+:root {
+  --color-bg-app: #f8fafc;
+  --color-bg-sidebar: #ffffff;
+  --color-bg-header: #ffffff;
+  --color-text-main: #0f172a;
+  --color-text-muted: #64748b;
+  --color-border: #e2e8f0;
+  --color-accent-primary: #3b82f6;
+  --color-bg-canvas-container: #e2e8f0;
+}
+
+body {
+  font-family: "Inter", sans-serif;
+  padding: 0;
+  margin: 0;
+  background-color: var(--color-bg-app);
+  color: var(--color-text-main);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.thumbnail-pdf canvas {
+  width: 100% !important;
+  height: auto !important;
+}
+
+button {
+  cursor: pointer;
+}
