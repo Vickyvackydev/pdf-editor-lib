@@ -23,6 +23,7 @@ interface HeaderProps {
   pdfId: string;
   onRestore: (data: any) => void;
   fileName: string;
+  onBack?: () => void;
 }
 
 export const Header = ({
@@ -35,6 +36,7 @@ export const Header = ({
   pdfId,
   onRestore,
   fileName,
+  onBack,
 }: HeaderProps) => {
   const [showVersions, setShowVersions] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -76,7 +78,7 @@ export const Header = ({
   const handleRestore = (v: Version) => {
     if (
       window.confirm(
-        `Restore to v${v.versionNumber} (${v.label})? This will load that version's state and you can continue editing.`
+        `Restore to v${v.versionNumber} (${v.label})? This will load that version's state and you can continue editing.`,
       )
     ) {
       onRestore(v.data);
@@ -96,6 +98,16 @@ export const Header = ({
   return (
     <div className="w-full h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-50 relative">
       <div className="flex items-center gap-4">
+        {onBack && (
+          <button
+            onClick={onBack}
+            title="Back"
+            className="flex items-center gap-2 text-gray-600 hover:bg-gray-100 w-[30px] h-[30px] justify-center rounded-full font-medium transition-all mr-2"
+          >
+            <span className="text-xl">←</span>
+            {/* <span className="text-sm">Back</span> */}
+          </button>
+        )}
         {/* OPEN BUTTON */}
         <input
           type="file"
@@ -104,6 +116,7 @@ export const Header = ({
           accept="application/pdf"
           className="hidden"
         />
+
         <button
           onClick={() => fileInputRef.current?.click()}
           className="flex items-center gap-2 text-gray-700 hover:bg-gray-100 px-3 py-2 rounded-lg font-medium transition-colors"

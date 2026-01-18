@@ -1,12 +1,45 @@
 import { Toaster } from "react-hot-toast";
+import { useState } from "react";
 import PdfEditor from "../components/PdfEditor";
 
 function DemoEditor() {
+  const [showEditor, setShowEditor] = useState(false);
+
+  const handleSave = (pdfBytes: Uint8Array, fileName: string) => {
+    console.log("Saved PDF bytes:", pdfBytes.length);
+    alert(
+      `Saved ${fileName} with ${pdfBytes.length} bytes! Check console for details.`,
+    );
+  };
+
+  const handleBack = () => {
+    setShowEditor(false);
+  };
+
+  if (showEditor) {
+    return (
+      <>
+        <Toaster position="top-left" />
+        <PdfEditor
+          onSave={handleSave}
+          onBack={handleBack}
+          // You can pass a fileUrl here if you want to preload one
+          // fileUrl="https://pdfobject.com/pdf/sample.pdf"
+        />
+      </>
+    );
+  }
+
   return (
-    <>
-      <Toaster position="top-left" />
-      <PdfEditor />
-    </>
+    <div className="w-full h-screen flex flex-col items-center justify-center bg-gray-100 p-4">
+      <h1 className="text-3xl font-bold mb-6">My App Integration</h1>
+      <button
+        onClick={() => setShowEditor(true)}
+        className="px-6 py-3 bg-blue-600 text-white rounded-xl shadow-lg hover:bg-blue-700 transition font-medium"
+      >
+        Open PDF Editor
+      </button>
+    </div>
   );
 }
 

@@ -1,13 +1,28 @@
 {
   "name": "pdf-editor-lib",
-  "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
+  "main": "./dist/pdf-editor.umd.js",
+  "module": "./dist/pdf-editor.es.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/pdf-editor.es.js",
+      "require": "./dist/pdf-editor.umd.js"
+    }
+  },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && tsc -p tsconfig.app.json --declaration --emitDeclarationOnly --noEmit false --outDir dist",
     "lint": "eslint .",
     "preview": "vite preview"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -22,8 +37,6 @@
     "fabric-history": "^2.0.0",
     "lucide-react": "^0.553.0",
     "pdf-lib": "^1.17.1",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
     "react-hot-toast": "^2.6.0",
     "react-icons": "^5.5.0",
     "react-pdf": "^10.2.0",

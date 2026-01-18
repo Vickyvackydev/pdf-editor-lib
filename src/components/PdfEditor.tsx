@@ -31,7 +31,19 @@ import {
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 // Main PDF Editor component
-function PdfEditor() {
+export interface PdfEditorProps {
+  fileUrl?: string | null;
+  fileName?: string;
+  onSave?: (pdfBytes: Uint8Array, fileName: string) => void;
+  onBack?: () => void;
+}
+
+function PdfEditor({
+  fileUrl: initialFileUrl,
+  fileName: initialFileName,
+  onSave,
+  onBack,
+}: PdfEditorProps) {
   // const [numberPages, setNumberPages] = useState(0);
   const [pages, setPages] = useState<{ id: string; page: number }[]>([]);
   const [pdfDocument, setPdfDocument] = useState<any>(null);
@@ -42,9 +54,13 @@ function PdfEditor() {
   const [startedDrawing, setStartedDrawing] = useState(false);
   const [pageNumber, setPageNumber] = useState(1);
   const [zoomScale, setZoomScale] = useState(100);
-  const [fileName, setFileName] = useState("Document.pdf");
+  const [fileName, setFileName] = useState(initialFileName || "Document.pdf");
   const [isLoading, setIsLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  // Initialize originalPdfSource with prop if available
+  const [originalPdfSource, setOriginalPdfSource] = useState<
+    string | ArrayBuffer | null
+  >(initialFileUrl || null);
   const viewerRef = useRef<HTMLDivElement>(null);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const fabricRef = useRef<Canvas | null>(null);
@@ -65,11 +81,7 @@ function PdfEditor() {
   let startY = 0;
   const [extractedText, setExtractedText] = useState<PdfTextItem[]>([]);
 
-  const [originalPdfSource, setOriginalPdfSource] = useState<
-    string | ArrayBuffer | null
-  >(null);
-
-  const [fileUrl, setFileUrl] = useState<string | null>("");
+  const [fileUrl, setFileUrl] = useState<string | null>(initialFileUrl || null);
   const pdfPageRef = useRef<HTMLDivElement | null>(null);
   const [pdfSize, setPdfSize] = useState({ width: 0, height: 0 });
   const [activeTool, setActiveTool] = useState("text");
@@ -1058,12 +1070,18 @@ function PdfEditor() {
       }
 
       const pdfBytes = await newPdfDoc.save();
+
+      if (onSave) {
+        onSave(pdfBytes, fileName);
+        return;
+      }
+
       const url = URL.createObjectURL(
         new Blob([pdfBytes as any], { type: "application/pdf" }),
       );
       const link = document.createElement("a");
       link.href = url;
-      link.download = "annotated_document.pdf";
+      link.download = fileName || "annotated_document.pdf";
       link.click();
       toast.success("Document saved successfully!");
     } catch (e) {
@@ -1156,6 +1174,7 @@ function PdfEditor() {
         pdfId={pdfId}
         onRestore={restoreVersion}
         fileName={fileName}
+        onBack={onBack}
       />
       {/* TOOLBAR */}
       <Toolbar

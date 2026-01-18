@@ -18,8 +18,9 @@ function useDropdown() {
     const handleClickOutSide = (event: MouseEvent) => {
       let outSide = true;
 
-      for (const [key, value] of Object.entries(dropdownRef)) {
-        if (value.current?.contains(event.target as Node)) {
+      const refs = Object.values(dropdownRef);
+      for (const ref of refs) {
+        if (ref.current && ref.current.contains(event.target as Node)) {
           outSide = false;
         }
       }
