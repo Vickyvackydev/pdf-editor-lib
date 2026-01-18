@@ -29,7 +29,7 @@ export const Sidebar = ({
   pdfFile,
   pageNumber,
   setPageNumber,
-  setNumberPages,
+  // setNumberPages,
   pages,
   setPages,
   pageCanvasData,
@@ -38,7 +38,7 @@ export const Sidebar = ({
   pdfFile: string;
   pageNumber: number;
   setPageNumber: (n: number) => void;
-  setNumberPages: (n: number) => void;
+  // setNumberPages: (n: number) => void;
   pages: { id: string; page: number }[];
   setPages: (p: { id: string; page: number }[]) => void;
   pageCanvasData: Record<string, string>;
@@ -144,7 +144,7 @@ export const Sidebar = ({
                     activeRef={pageNumber === index + 1 ? activeRef : null}
                     pages={pages}
                     setPages={setPages}
-                    setNumberPages={setNumberPages}
+                    // setNumberPages={setNumberPages}
                     currentPageNumber={pageNumber}
                     pageCanvasData={pageCanvasData}
                     setPageCanvasData={setPageCanvasData}

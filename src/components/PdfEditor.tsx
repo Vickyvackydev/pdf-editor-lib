@@ -32,11 +32,11 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 
 // Main PDF Editor component
 function PdfEditor() {
-  const [numberPages, setNumberPages] = useState(0);
+  // const [numberPages, setNumberPages] = useState(0);
   const [pages, setPages] = useState<{ id: string; page: number }[]>([]);
   const [pdfDocument, setPdfDocument] = useState<any>(null);
   const [activeSidebar, setActiveSidebar] = useState<"thumbnails" | "search">(
-    "thumbnails"
+    "thumbnails",
   );
   const [isDrawing, setIsDrawing] = useState(false);
   const [startedDrawing, setStartedDrawing] = useState(false);
@@ -44,6 +44,7 @@ function PdfEditor() {
   const [zoomScale, setZoomScale] = useState(100);
   const [fileName, setFileName] = useState("Document.pdf");
   const [isLoading, setIsLoading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const viewerRef = useRef<HTMLDivElement>(null);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const fabricRef = useRef<Canvas | null>(null);
@@ -56,7 +57,7 @@ function PdfEditor() {
   const canvaContainerRef = useRef<HTMLDivElement | null>(null);
   const dragHandleRef = useRef<HTMLDivElement>(null);
   const [pageCanvasData, setPageCanvasData] = useState<Record<string, string>>(
-    {}
+    {},
   );
   let isHighlighting = false;
   let highlightRect: Rect | null = null;
@@ -77,8 +78,14 @@ function PdfEditor() {
     activeToolRef.current = activeTool;
   }, [activeTool]);
 
-  const undoStack = useRef<string[]>([]);
-  const redoStack = useRef<string[]>([]);
+  interface HistoryState {
+    pageId: string;
+    pageNumber: number;
+    json: string;
+  }
+
+  const undoStack = useRef<HistoryState[]>([]);
+  const redoStack = useRef<HistoryState[]>([]);
   const lockHistory = useRef<boolean>(false);
 
   // Version auto-save configuration
@@ -171,7 +178,7 @@ function PdfEditor() {
         await loadPageState(
           pageId,
           pdfOverlayFabricRef,
-          pageCanvasDataRef.current
+          pageCanvasDataRef.current,
         );
         lastLoadedPage.current = pageId;
       } catch (error) {
@@ -183,6 +190,26 @@ function PdfEditor() {
     const timer = setTimeout(load, 150);
     return () => clearTimeout(timer);
   }, [pageNumber, pages, canvasInstance, pdfSize, zoomScale]);
+
+  const handleFile = async (file: File) => {
+    if (file && file.type === "application/pdf") {
+      setFileName(file.name);
+      setIsLoading(true);
+
+      const url = URL.createObjectURL(file);
+      setFileUrl(url);
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        if (event.target?.result) {
+          setOriginalPdfSource(event.target.result as ArrayBuffer);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else if (file) {
+      toast.error("Please upload a valid PDF file");
+    }
+  };
 
   const handleLoadFromUrl = async (url: string) => {
     try {
@@ -217,21 +244,32 @@ function PdfEditor() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setFileName(file.name);
-      setIsLoading(true);
-
-      const url = URL.createObjectURL(file);
-      setFileUrl(url);
-
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        if (event.target?.result) {
-          setOriginalPdfSource(event.target.result as ArrayBuffer);
-        }
-      };
-      reader.readAsArrayBuffer(file);
+      handleFile(file);
     }
     e.target.value = "";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      handleFile(file);
+    }
   };
 
   useEffect(() => {
@@ -269,7 +307,6 @@ function PdfEditor() {
   }, [isLoading]);
 
   const handleDocumentLoad = (pdf: any) => {
-    setNumberPages(pdf.numPages);
     setPdfDocument(pdf);
 
     const initialPages = Array.from({ length: pdf.numPages }, (_, i) => ({
@@ -405,7 +442,13 @@ function PdfEditor() {
     const saveState = () => {
       if (lockHistory.current) return;
       const json = JSON.stringify(canvas.toJSON());
-      undoStack.current.push(json);
+      // Use a special IDs for the drawing box, or just ignore for now if it's separate.
+      // But to match types:
+      undoStack.current.push({
+        pageId: "drawing-box",
+        pageNumber: 0,
+        json,
+      });
       redoStack.current = [];
     };
 
@@ -565,14 +608,6 @@ function PdfEditor() {
     }
   };
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Delete" || e.key === "Escape") handleDeleteCanva();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, []);
-
   const handleClearCanvas = () => fabricRef.current?.clear();
 
   const [fontSize, setFontSize] = useState("12");
@@ -622,38 +657,206 @@ function PdfEditor() {
     }
   };
 
+  // Capture state on mouse down (before modification)
+  useEffect(() => {
+    const canvas = pdfOverlayFabricRef.current;
+    if (!canvas) return;
+
+    let startState: string | null = null;
+
+    const onMouseDown = () => {
+      startState = serializeCanvasForPage(canvas);
+    };
+
+    const onModification = () => {
+      if (lockHistory.current) return;
+      if (startState) {
+        const pageId = pages[pageNumber - 1]?.id;
+        if (pageId) {
+          undoStack.current.push({
+            pageId,
+            pageNumber,
+            json: startState,
+          });
+          redoStack.current = [];
+        }
+      }
+      startState = serializeCanvasForPage(canvas);
+    };
+
+    canvas.on("mouse:down", onMouseDown);
+    canvas.on("object:modified", onModification);
+    canvas.on("object:added", onModification);
+    canvas.on("object:removed", onModification);
+
+    return () => {
+      canvas.off("mouse:down", onMouseDown);
+      canvas.off("object:modified", onModification);
+      canvas.off("object:added", onModification);
+      canvas.off("object:removed", onModification);
+    };
+  }, [pageNumber, pages, canvasInstance]);
+
   const undo = async () => {
-    const canvas = fabricRef.current;
-    if (!canvas || undoStack.current.length <= 1) return;
+    if (undoStack.current.length === 0) return;
     lockHistory.current = true;
-    redoStack.current.push(undoStack.current.pop()!);
+
+    const prevState = undoStack.current.pop()!;
+
+    // -- Special handling for Drawing Box --
+    if (prevState.pageId === "drawing-box") {
+      const canvas = fabricRef.current;
+      if (canvas) {
+        redoStack.current.push({
+          ...prevState,
+          json: JSON.stringify(canvas.toJSON()),
+        });
+        await canvas.loadFromJSON(prevState.json);
+        canvas.renderAll();
+      }
+      lockHistory.current = false;
+      return;
+    }
+
+    const currentPageId = pages[pageNumber - 1]?.id;
+
+    // Save current state to Redo
+    const canvas = pdfOverlayFabricRef.current;
+    const currentJson = canvas ? serializeCanvasForPage(canvas) : null;
+
+    if (currentPageId && currentJson) {
+      redoStack.current.push({
+        pageId: currentPageId,
+        pageNumber: pageNumber,
+        json: currentJson,
+      });
+    }
+
     try {
-      await canvas.loadFromJSON(
-        undoStack.current[undoStack.current.length - 1]
-      );
-      canvas.renderAll();
+      if (prevState.pageNumber !== pageNumber) {
+        // Switch page
+        setPageCanvasData((prev) => ({
+          ...prev,
+          [prevState.pageId]: prevState.json,
+        }));
+        goToPage(prevState.pageNumber);
+      } else {
+        // Same page
+        if (canvas) {
+          await loadPageState(prevState.pageId, pdfOverlayFabricRef, {
+            [prevState.pageId]: prevState.json,
+          });
+          setPageCanvasData((prev) => ({
+            ...prev,
+            [prevState.pageId]: prevState.json,
+          }));
+        }
+      }
     } finally {
       lockHistory.current = false;
     }
   };
 
   const redo = async () => {
-    const canvas = fabricRef.current;
-    if (!canvas || redoStack.current.length === 0) return;
+    if (redoStack.current.length === 0) return;
     lockHistory.current = true;
-    undoStack.current.push(redoStack.current.pop()!);
+
+    const nextState = redoStack.current.pop()!;
+
+    // -- Special handling for Drawing Box --
+    if (nextState.pageId === "drawing-box") {
+      const canvas = fabricRef.current;
+      if (canvas) {
+        undoStack.current.push({
+          ...nextState,
+          json: JSON.stringify(canvas.toJSON()),
+        });
+        await canvas.loadFromJSON(nextState.json);
+        canvas.renderAll();
+      }
+      lockHistory.current = false;
+      return;
+    }
+
+    const currentPageId = pages[pageNumber - 1]?.id;
+
+    const canvas = pdfOverlayFabricRef.current;
+    const currentJson = canvas ? serializeCanvasForPage(canvas) : null;
+    if (currentPageId && currentJson) {
+      undoStack.current.push({
+        pageId: currentPageId,
+        pageNumber: pageNumber,
+        json: currentJson,
+      });
+    }
+
     try {
-      await canvas.loadFromJSON(
-        undoStack.current[undoStack.current.length - 1]
-      );
-      canvas.renderAll();
+      if (nextState.pageNumber !== pageNumber) {
+        setPageCanvasData((prev) => ({
+          ...prev,
+          [nextState.pageId]: nextState.json,
+        }));
+        goToPage(nextState.pageNumber);
+      } else {
+        if (canvas) {
+          await loadPageState(nextState.pageId, pdfOverlayFabricRef, {
+            [nextState.pageId]: nextState.json,
+          });
+          setPageCanvasData((prev) => ({
+            ...prev,
+            [nextState.pageId]: nextState.json,
+          }));
+        }
+      }
     } finally {
       lockHistory.current = false;
     }
   };
 
+  const duplicateSelectedObject = () => {
+    const canvas = pdfOverlayFabricRef.current;
+    if (!canvas) return;
+    const activeObject = canvas.getActiveObject();
+    if (!activeObject) return;
+    if ((activeObject as any).pdfMeta?.type === "text-replacement") return;
+
+    // Capture state before duplication for Undo
+    const pageId = pages[pageNumber - 1]?.id;
+    const currentJson = serializeCanvasForPage(canvas);
+    if (pageId && currentJson) {
+      undoStack.current.push({
+        pageId,
+        pageNumber,
+        json: currentJson,
+      });
+      redoStack.current = [];
+    }
+
+    activeObject.clone().then((cloned: any) => {
+      canvas.discardActiveObject();
+      cloned.set({
+        left: cloned.left + 20,
+        top: cloned.top + 20,
+        evented: true,
+      });
+      if (cloned.type === "activeSelection") {
+        cloned.canvas = canvas;
+        cloned.forEachObject((obj: any) => {
+          canvas.add(obj);
+        });
+        cloned.setCoords();
+      } else {
+        canvas.add(cloned);
+      }
+      canvas.setActiveObject(cloned);
+      canvas.requestRenderAll();
+      saveCurrentPageState();
+    });
+  };
+
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
+      // Undo / Redo
       if (e.ctrlKey && e.key.toLowerCase() === "z" && !e.shiftKey) {
         e.preventDefault();
         await undo();
@@ -663,11 +866,16 @@ function PdfEditor() {
       ) {
         e.preventDefault();
         await redo();
+      } else if (e.ctrlKey && e.key.toLowerCase() === "d") {
+        e.preventDefault();
+        duplicateSelectedObject();
       }
+      // Delete
+      if (e.key === "Delete" || e.key === "Escape") handleDeleteCanva();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [pageNumber, pages]); // Re-bind on page change to ensure state freshness if needed
 
   const enableTextEditMode = () => {
     if (pdfOverlayFabricRef.current) {
@@ -677,6 +885,7 @@ function PdfEditor() {
   };
 
   const activateHighlightMode = () => {
+    if (activeTool === "highlight") return;
     const canvas = pdfOverlayFabricRef.current;
     if (!canvas) return;
     canvas.isDrawingMode = false;
@@ -809,6 +1018,11 @@ function PdfEditor() {
       tempCanvasEl.height = pdfSize.height || 842;
       const tempFabricCanvas = new Canvas(tempCanvasEl);
 
+      // Determine the scale factor between screen pixels (pdfSize) and PDF points
+      const currentPdfPage = originalPdfDoc.getPages()[pageNumber - 1];
+      const { width: currentPdfWidth } = currentPdfPage.getSize();
+      const scaleFactor = currentPdfWidth / pdfSize.width;
+
       for (const item of pages) {
         const [copiedPage] = await newPdfDoc.copyPages(originalPdfDoc, [
           item.page - 1,
@@ -818,13 +1032,24 @@ function PdfEditor() {
         const savedState = pageCanvasData[item.id];
         if (savedState) {
           await tempFabricCanvas.loadFromJSON(savedState);
+
+          // Scale objects to match PDF dimensions
+          const objects = tempFabricCanvas.getObjects();
+          objects.forEach((obj: any) => {
+            obj.scaleX = (obj.scaleX || 1) * scaleFactor;
+            obj.scaleY = (obj.scaleY || 1) * scaleFactor;
+            obj.left = (obj.left || 0) * scaleFactor;
+            obj.top = (obj.top || 0) * scaleFactor;
+            obj.setCoords();
+          });
+
           tempFabricCanvas.renderAll();
           const dataUrl = tempFabricCanvas.toDataURL({
             format: "png",
             multiplier: 2,
           });
           const embeddedImage = await newPdfDoc.embedPng(
-            await fetch(dataUrl).then((r) => r.arrayBuffer())
+            await fetch(dataUrl).then((r) => r.arrayBuffer()),
           );
           const { width, height } = copiedPage.getSize();
           copiedPage.drawImage(embeddedImage, { x: 0, y: 0, width, height });
@@ -834,7 +1059,7 @@ function PdfEditor() {
 
       const pdfBytes = await newPdfDoc.save();
       const url = URL.createObjectURL(
-        new Blob([pdfBytes as any], { type: "application/pdf" })
+        new Blob([pdfBytes as any], { type: "application/pdf" }),
       );
       const link = document.createElement("a");
       link.href = url;
@@ -920,19 +1145,18 @@ function PdfEditor() {
         </div>
       )}
 
-      {/* HEADER */}
+      {/* Header */}
       <Header
-        onUpload={handleFileUpload}
         onSave={handleSaveDocument}
+        onUpload={handleFileUpload}
         onExportImage={handleExportPageAsImage}
-        fileName={fileName}
         pageNumber={pageNumber}
-        totalPages={numberPages}
+        totalPages={pages.length}
         onPageChange={goToPage}
         pdfId={pdfId}
         onRestore={restoreVersion}
+        fileName={fileName}
       />
-
       {/* TOOLBAR */}
       <Toolbar
         activeTool={activeTool}
@@ -956,61 +1180,144 @@ function PdfEditor() {
           setStartedDrawing(true);
         }}
         handleAddImage={handleAddImage}
+        onUndo={undo}
+        onRedo={redo}
       />
 
       {/* MAIN CONTENT AREA */}
       <div className="flex-1 relative overflow-hidden">
         {/* EMPTY STATE */}
         {!originalPdfSource && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 p-8 z-10">
-            <div className="max-w-md w-full text-center space-y-6">
-              <div className="w-20 h-20 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                <FileText size={40} className="text-blue-600" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-slate-900">
-                  Ready to Edit?
-                </h2>
-                <p className="text-slate-500 mt-2">
-                  Upload a PDF file or enter a live URL to get started.
-                </p>
+          // <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 p-8 z-10">
+          //   <div className="max-w-md w-full text-center space-y-6">
+          //     <div className="w-20 h-20 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-2">
+          //       <FileText size={40} className="text-blue-600" />
+          //     </div>
+          //     <div>
+          //       <h2 className="text-2xl font-bold text-slate-900">
+          //         Ready to Edit?
+          //       </h2>
+          //       <p className="text-slate-500 mt-2">
+          //         Upload a PDF file or enter a live URL to get started.
+          //       </p>
+          //     </div>
+
+          //     <div className="space-y-4">
+          //       <button
+          //         onClick={() =>
+          //           document
+          //             .querySelector<HTMLInputElement>('input[type="file"]')
+          //             ?.click()
+          //         }
+          //         className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+          //       >
+          //         <Upload size={20} />
+          //         Upload PDF File
+          //       </button>
+
+          //       <div className="flex items-center gap-2">
+          //         <div className="h-px flex-1 bg-slate-200" />
+          //         <span className="text-xs text-slate-500 font-bold uppercase">
+          //           or
+          //         </span>
+          //         <div className="h-px flex-1 bg-slate-200" />
+          //       </div>
+
+          //       <div className="relative group">
+          //         <input
+          //           type="text"
+          //           placeholder="Paste a live PDF URL here..."
+          //           className="w-full px-4 py-3 pl-10 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:border-blue-500 transition-all"
+          //           onKeyDown={(e) => {
+          //             if (e.key === "Enter") {
+          //               handleLoadFromUrl(e.currentTarget.value);
+          //             }
+          //           }}
+          //         />
+          //         <Search
+          //           size={16}
+          //           className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500"
+          //         />
+          //       </div>
+          //     </div>
+          //   </div>
+          // </div>
+          <div
+            className={`absolute inset-0 flex items-center justify-center p-6 z-10 transition-colors ${
+              isDragging ? "bg-blue-50/50" : ""
+            }`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <div
+              className={`w-full max-w-lg rounded-3xl p-10 text-center transition-all ${
+                isDragging
+                  ? "bg-white shadow-2xl scale-[1.02] border-2 border-dashed border-blue-400"
+                  : ""
+              }`}
+            >
+              {/* Icon */}
+              <div className="relative mx-auto mb-6 w-20 h-20 rounded-2xl bg-linear-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg">
+                <FileText size={38} className="text-white" />
+                <div className="absolute -inset-1 rounded-2xl bg-blue-500/20 blur-xl" />
               </div>
 
-              <div className="space-y-4">
+              {/* Title */}
+              <h2 className="text-2xl font-semibold text-slate-900">
+                Start Editing Your PDF
+              </h2>
+              <p className="mt-2 text-sm text-slate-500">
+                Upload a PDF or paste a live URL to begin editing instantly.
+              </p>
+
+              {/* Actions */}
+              <div className="mt-8 space-y-5">
+                {/* Upload Button */}
                 <button
                   onClick={() =>
                     document
                       .querySelector<HTMLInputElement>('input[type="file"]')
                       ?.click()
                   }
-                  className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold shadow-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+                  className="group w-full py-4 rounded-xl bg-linear-to-r from-blue-600 to-indigo-600 text-white font-semibold shadow-lg hover:shadow-xl hover:scale-[1.01] transition-all flex items-center justify-center gap-2"
                 >
-                  <Upload size={20} />
-                  Upload PDF File
+                  <Upload
+                    size={18}
+                    className="group-hover:-translate-y-px transition"
+                  />
+                  Upload PDF
                 </button>
 
-                <div className="flex items-center gap-2">
+                {/* Drag hint */}
+                <p className="text-xs text-slate-400">
+                  or drag & drop a PDF file here
+                </p>
+
+                {/* Divider */}
+                <div className="flex items-center gap-3">
                   <div className="h-px flex-1 bg-slate-200" />
-                  <span className="text-xs text-slate-500 font-bold uppercase">
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase">
                     or
                   </span>
                   <div className="h-px flex-1 bg-slate-200" />
                 </div>
 
-                <div className="relative group">
+                {/* URL Input */}
+                <div className="relative">
+                  <Search
+                    size={16}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
                   <input
                     type="text"
-                    placeholder="Paste a live PDF URL here..."
-                    className="w-full px-4 py-3 pl-10 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:border-blue-500 transition-all"
+                    placeholder="Paste a public PDF URL and press Enter"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 pl-11 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         handleLoadFromUrl(e.currentTarget.value);
                       }
                     }}
-                  />
-                  <Search
-                    size={16}
-                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500"
                   />
                 </div>
               </div>
@@ -1073,7 +1380,7 @@ function PdfEditor() {
                     pdfFile={fileUrl as string}
                     pageNumber={pageNumber}
                     setPageNumber={goToPage}
-                    setNumberPages={setNumberPages}
+                    // setNumberPages={setNumberPages}
                     pages={pages}
                     setPages={setPages}
                     pageCanvasData={pageCanvasData}

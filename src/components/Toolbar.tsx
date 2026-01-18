@@ -31,6 +31,8 @@ export const Toolbar = ({
   activateHighlightMode,
   handleAddShape,
   handleAddImage,
+  onUndo,
+  onRedo,
 }: {
   activeTool: string;
   setActiveTool: (str: string) => void;
@@ -47,6 +49,8 @@ export const Toolbar = ({
   activateHighlightMode: () => void;
   handleAddShape: (type: string) => void;
   handleAddImage: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }) => {
   const imageInputRef = useRef<HTMLInputElement>(null);
 
@@ -199,10 +203,18 @@ export const Toolbar = ({
           </div>
 
           <div className="flex gap-1 ml-auto shrink-0">
-            <button className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded">
+            <button
+              onClick={onUndo}
+              className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded"
+              title="Undo (Ctrl+Z)"
+            >
               <Undo size={18} />
             </button>
-            <button className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded">
+            <button
+              onClick={onRedo}
+              className="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded"
+              title="Redo (Ctrl+Y)"
+            >
               <Redo size={18} />
             </button>
           </div>
