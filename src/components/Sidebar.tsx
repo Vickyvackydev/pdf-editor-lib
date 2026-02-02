@@ -6,6 +6,7 @@ import {
   MoreVertical,
   Trash2,
   Copy,
+  Undo,
 } from "lucide-react";
 
 import {
@@ -29,7 +30,6 @@ export const Sidebar = ({
   pdfFile,
   pageNumber,
   setPageNumber,
-  // setNumberPages,
   pages,
   setPages,
   pageCanvasData,
@@ -38,7 +38,6 @@ export const Sidebar = ({
   pdfFile: string;
   pageNumber: number;
   setPageNumber: (n: number) => void;
-  // setNumberPages: (n: number) => void;
   pages: { id: string; page: number }[];
   setPages: (p: { id: string; page: number }[]) => void;
   pageCanvasData: Record<string, string>;
@@ -51,6 +50,14 @@ export const Sidebar = ({
   const [thumbScale, setThumbScale] = useState(0.28);
 
   const activeRef = useRef<HTMLDivElement | null>(null);
+
+  // History for Undo
+  const [history, setHistory] = useState<
+    {
+      pages: { id: string; page: number }[];
+      pageCanvasData: Record<string, string>;
+    }[]
+  >([]);
 
   // Auto-scroll active item into view
   useEffect(() => {
@@ -73,32 +80,109 @@ export const Sidebar = ({
     }
   };
 
+  const addToHistory = () => {
+    setHistory((prev) => [
+      ...prev,
+      { pages: [...pages], pageCanvasData: { ...pageCanvasData } },
+    ]);
+  };
+
+  const handleUndo = () => {
+    if (history.length === 0) return;
+    const lastState = history[history.length - 1];
+    setPages(lastState.pages);
+    setPageCanvasData(lastState.pageCanvasData);
+    setHistory((prev) => prev.slice(0, -1));
+  };
+
+  const handleDeletePage = (id: string) => {
+    addToHistory();
+
+    if (pages.length <= 1) {
+      alert("Cannot delete the last page.");
+      return;
+    }
+
+    const index = pages.findIndex((p) => p.id === id);
+    const filtered = pages.filter((p) => p.id !== id);
+    setPages(filtered);
+
+    // If we're deleting the active page OR the active page index shifted
+    if (pageNumber === index + 1) {
+      // Deleting active page -> go to previous or first
+      const nextActiveIndex = Math.max(1, index);
+      setPageNumber(nextActiveIndex);
+    } else if (index + 1 < pageNumber) {
+      // Deleted page was before active page -> shift active page number down
+      setPageNumber(pageNumber - 1);
+    }
+  };
+
+  const handleDuplicatePage = (id: string) => {
+    addToHistory();
+
+    const index = pages.findIndex((p) => p.id === id);
+    const item = pages[index];
+    if (!item) return;
+
+    const newId = crypto.randomUUID();
+    const newItem = { id: newId, page: item.page };
+    const newPages = [...pages];
+    newPages.splice(index + 1, 0, newItem);
+
+    // Copy annotation data
+    if (pageCanvasData[item.id]) {
+      setPageCanvasData((prev: any) => ({
+        ...prev,
+        [newId]: pageCanvasData[item.id],
+      }));
+    }
+
+    setPages(newPages);
+  };
+
   return (
     <div className="w-full h-full bg-gray-50 border-r border-gray-200 flex flex-col">
       {/* TOP TOOLBAR */}
       <div className="p-3 bg-white border-b border-gray-300 flex items-center justify-between">
-        {/* View mode buttons */}
-        <div className="flex items-center gap-x-4">
-          <button
-            onClick={() => setViewMode("vertical")}
-            className={`p-2 rounded-lg border ${
-              viewMode === "vertical"
-                ? "bg-black text-white border-black"
-                : "bg-gray-100 border-gray-300"
-            }`}
-          >
-            <LayoutList size={18} />
-          </button>
+        <div className="flex items-center gap-x-2">
+          {/* View mode buttons */}
+          <div className="flex items-center gap-x-1 bg-gray-100 p-1 rounded-lg">
+            <button
+              onClick={() => setViewMode("vertical")}
+              className={`p-1.5 rounded-md transition-all ${
+                viewMode === "vertical"
+                  ? "bg-white text-black shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              <LayoutList size={16} />
+            </button>
 
+            <button
+              onClick={() => setViewMode("grid")}
+              className={`p-1.5 rounded-md transition-all ${
+                viewMode === "grid"
+                  ? "bg-white text-black shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              <LayoutGrid size={16} />
+            </button>
+          </div>
+
+          {/* Undo Button */}
           <button
-            onClick={() => setViewMode("grid")}
-            className={`p-2 rounded-lg border ${
-              viewMode === "grid"
-                ? "bg-black text-white border-black"
-                : "bg-gray-100 border-gray-300"
+            onClick={handleUndo}
+            disabled={history.length === 0}
+            className={`p-2 rounded-lg border transition-colors ${
+              history.length > 0
+                ? "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+                : "bg-gray-50 border-gray-200 text-gray-300 cursor-not-allowed"
             }`}
+            title="Undo Delete/Duplicate"
           >
-            <LayoutGrid size={18} />
+            <Undo size={18} />
           </button>
         </div>
 
@@ -110,7 +194,7 @@ export const Sidebar = ({
           step={0.02}
           value={thumbScale}
           onChange={(e) => setThumbScale(Number(e.target.value))}
-          className="w-24"
+          className="w-20"
         />
       </div>
 
@@ -142,12 +226,8 @@ export const Sidebar = ({
                     thumbScale={thumbScale}
                     setPageNumber={setPageNumber}
                     activeRef={pageNumber === index + 1 ? activeRef : null}
-                    pages={pages}
-                    setPages={setPages}
-                    // setNumberPages={setNumberPages}
-                    currentPageNumber={pageNumber}
-                    pageCanvasData={pageCanvasData}
-                    setPageCanvasData={setPageCanvasData}
+                    onDelete={() => handleDeletePage(item.id)}
+                    onDuplicate={() => handleDuplicatePage(item.id)}
                   />
                 ))}
               </div>
@@ -161,7 +241,7 @@ export const Sidebar = ({
 
 /* ------------------------ SORTABLE WRAPPER ------------------------ */
 
-function SortablePage({ item, ...rest }: any) {
+function SortablePage({ item, onDelete, onDuplicate, ...rest }: any) {
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: item.id });
 
@@ -176,6 +256,8 @@ function SortablePage({ item, ...rest }: any) {
       <ThumbnailPage
         item={item}
         dragHandleProps={{ attributes, listeners }}
+        onDelete={onDelete}
+        onDuplicate={onDuplicate}
         {...rest}
       />
     </div>
@@ -191,13 +273,9 @@ function ThumbnailPage({
   setPageNumber,
   thumbScale,
   activeRef,
-  pages,
-  setPages,
-  setNumberPages,
   dragHandleProps,
-  currentPageNumber,
-  pageCanvasData,
-  setPageCanvasData,
+  onDelete,
+  onDuplicate,
 }: any) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -216,50 +294,6 @@ function ThumbnailPage({
         document.removeEventListener("mousedown", handleClickOutside);
     }
   }, [menuOpen]);
-
-  // DELETE PAGE
-  const deletePage = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (pages.length <= 1) {
-      alert("Cannot delete the last page.");
-      return;
-    }
-
-    const filtered = pages.filter((p: any) => p.id !== item.id);
-    setPages(filtered);
-    setNumberPages(filtered.length);
-
-    // If we're deleting the active page OR the active page index shifted
-    if (isActive) {
-      const nextActiveIndex = Math.max(1, index);
-      setPageNumber(nextActiveIndex);
-    } else if (index + 1 < currentPageNumber) {
-      setPageNumber(currentPageNumber - 1);
-    }
-
-    setMenuOpen(false);
-  };
-
-  // DUPLICATE PAGE
-  const duplicatePage = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const newId = crypto.randomUUID();
-    const newItem = { id: newId, page: item.page };
-    const newPages = [...pages];
-    newPages.splice(index + 1, 0, newItem);
-
-    // Copy annotation data
-    if (pageCanvasData[item.id]) {
-      setPageCanvasData((prev: any) => ({
-        ...prev,
-        [newId]: pageCanvasData[item.id],
-      }));
-    }
-
-    setPages(newPages);
-    setNumberPages(newPages.length);
-    setMenuOpen(false);
-  };
 
   return (
     <div
@@ -314,14 +348,22 @@ function ThumbnailPage({
           className="absolute top-11 right-2 bg-white border border-gray-200  shadow-lg rounded-md overflow-hidden z-20 min-w-[140px]"
         >
           <button
-            onClick={duplicatePage}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDuplicate();
+              setMenuOpen(false);
+            }}
             className="w-full flex items-center gap-x-2 px-3 py-2 hover:bg-gray-100 text-sm text-left"
           >
             <Copy size={14} /> Duplicate
           </button>
 
           <button
-            onClick={deletePage}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+              setMenuOpen(false);
+            }}
             className="w-full flex items-center gap-x-2 px-3 py-2 hover:bg-red-50 text-sm text-red-600 text-left border-t border-gray-100"
           >
             <Trash2 size={14} /> Delete

@@ -5,13 +5,21 @@ import {
   PencilBrush,
   Rect,
   Textbox,
+  Group,
+  Line,
+  Path,
 } from "fabric";
 import { HistoryManager } from "../utils/HistoryManager";
-import { PDFDocument } from "pdf-lib";
-import React, { useEffect, useRef, useState, type RefObject } from "react";
+import { PDFDocument, PDFName } from "pdf-lib";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  type RefObject,
+} from "react";
 import toast from "react-hot-toast";
-import { FaCheck, FaEraser, FaRedo, FaUndo } from "react-icons/fa";
-import { FileText, Upload, Search, Plus, Minus } from "lucide-react";
+import { FileText, Upload, Search, Plus, Minus, Check } from "lucide-react";
 
 import { pdfjs } from "react-pdf";
 
@@ -50,8 +58,6 @@ function PdfEditor({
   const [activeSidebar, setActiveSidebar] = useState<"thumbnails" | "search">(
     "thumbnails",
   );
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [startedDrawing, setStartedDrawing] = useState(false);
   const [pageNumber, setPageNumber] = useState(1);
   const [zoomScale, setZoomScale] = useState(100);
   const [fileName, setFileName] = useState(initialFileName || "Document.pdf");
@@ -62,24 +68,24 @@ function PdfEditor({
     string | ArrayBuffer | null
   >(initialFileUrl || null);
   const viewerRef = useRef<HTMLDivElement>(null);
-  const canvasContainerRef = useRef<HTMLDivElement | null>(null);
-  const fabricRef = useRef<Canvas | null>(null);
   const [penColor, setPenColor] = useState("#000000");
   const [penSize, setPenSize] = useState(3);
   const pdfOverlayContainerRef = useRef<HTMLDivElement | null>(null); // for Fabric overlay
   const pdfOverlayFabricRef = useRef<Canvas | null>(null); // for Fabric instance
   const [canvasInstance, setCanvasInstance] = useState<Canvas | null>(null);
   const [selectedColor, setSelectedColor] = useState("#ff0000");
-  const canvaContainerRef = useRef<HTMLDivElement | null>(null);
-  const dragHandleRef = useRef<HTMLDivElement>(null);
+  // const canvaContainerRef = useRef<HTMLDivElement | null>(null); // Removed
+  // const dragHandleRef = useRef<HTMLDivElement>(null); // Removed
   const [pageCanvasData, setPageCanvasData] = useState<Record<string, string>>(
     {},
   );
-  let isHighlighting = false;
-  let highlightRect: Rect | null = null;
-  let startX = 0;
-  let startY = 0;
   const [extractedText, setExtractedText] = useState<PdfTextItem[]>([]);
+  const [lastDrawingBounds, setLastDrawingBounds] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
 
   const [fileUrl, setFileUrl] = useState<string | null>(initialFileUrl || null);
   const pdfPageRef = useRef<HTMLDivElement | null>(null);
@@ -101,9 +107,22 @@ function PdfEditor({
   const lockHistory = useRef<boolean>(false);
 
   // Version auto-save configuration
-  // const AUTO_SAVE_INTERVAL = 5 * 60 * 1000; // 5 minutes
   const lastAutoSaveRef = useRef<number>(Date.now());
   const hasInitialVersionRef = useRef<boolean>(false);
+
+  // Highlight state refs
+  const isHighlightingRef = useRef(false);
+  const highlightRectRef = useRef<Rect | null>(null);
+  const startXRef = useRef(0);
+  const startYRef = useRef(0);
+
+  const drawnPathsRef = useRef<any[]>([]);
+  const isPlacingDrawingRef = useRef(false);
+
+  // Link tool refs
+  const isDrawingLinkRef = useRef(false);
+  const linkStartRef = useRef<{ x: number; y: number } | null>(null);
+  const linkRectRef = useRef<Rect | null>(null);
 
   // Persistence management locks and timers
   const isNavigatingRef = useRef(false);
@@ -123,35 +142,38 @@ function PdfEditor({
     pageCanvasDataRef.current = pageCanvasData;
   }, [pageCanvasData]);
 
-  const saveCurrentPageState = (index = pageNumber, force = false) => {
-    const canvas = canvasInstance || pdfOverlayFabricRef.current;
-    const pageId = pages[index - 1]?.id;
+  const saveCurrentPageState = useCallback(
+    (index = pageNumber, force = false) => {
+      const canvas = canvasInstance || pdfOverlayFabricRef.current;
+      const pageId = pages[index - 1]?.id;
 
-    if (!canvas || !pageId || (isNavigatingRef.current && !force)) {
-      return null;
-    }
+      if (!canvas || !pageId || (isNavigatingRef.current && !force)) {
+        return null;
+      }
 
-    const json = serializeCanvasForPage(canvas);
-    if (!json) return null;
+      const json = serializeCanvasForPage(canvas);
+      if (!json) return null;
 
-    isSavingRef.current = true;
+      isSavingRef.current = true;
 
-    pageCanvasDataRef.current = {
-      ...pageCanvasDataRef.current,
-      [pageId]: json,
-    };
+      pageCanvasDataRef.current = {
+        ...pageCanvasDataRef.current,
+        [pageId]: json,
+      };
 
-    setPageCanvasData((prev) => ({
-      ...prev,
-      [pageId]: json,
-    }));
+      setPageCanvasData((prev) => ({
+        ...prev,
+        [pageId]: json,
+      }));
 
-    setTimeout(() => {
-      isSavingRef.current = false;
-    }, 50);
+      setTimeout(() => {
+        isSavingRef.current = false;
+      }, 50);
 
-    return json;
-  };
+      return json;
+    },
+    [pageNumber, pages, canvasInstance],
+  );
 
   const goToPage = async (targetPage: number) => {
     if (targetPage === pageNumber) return;
@@ -428,87 +450,6 @@ function PdfEditor({
   }, [zoomScale]);
 
   useEffect(() => {
-    if (activeTool !== "draw") return;
-
-    const container = canvasContainerRef.current;
-    if (!container) return;
-    if (fabricRef.current) return;
-
-    container.innerHTML = "";
-
-    const canvasEl = document.createElement("canvas");
-    canvasEl.width = 300;
-    canvasEl.height = 200;
-    canvasEl.className = "pointer-events-auto absolute inset-0";
-    container.appendChild(canvasEl);
-
-    const canvas = new Canvas(canvasEl, { selection: false });
-    const pencil = new PencilBrush(canvas);
-    pencil.width = penSize;
-    pencil.color = penColor;
-
-    canvas.freeDrawingBrush = pencil;
-    canvas.isDrawingMode = true;
-    fabricRef.current = canvas;
-
-    const saveState = () => {
-      if (lockHistory.current) return;
-      const json = JSON.stringify(canvas.toJSON());
-      // Use a special IDs for the drawing box, or just ignore for now if it's separate.
-      // But to match types:
-      undoStack.current.push({
-        pageId: "drawing-box",
-        pageNumber: 0,
-        json,
-      });
-      redoStack.current = [];
-    };
-
-    saveState();
-    canvas.on("path:created", saveState);
-    canvas.on("object:modified", saveState);
-
-    return () => {
-      canvas.dispose();
-      fabricRef.current = null;
-      container.innerHTML = "";
-    };
-  }, [activeTool, penSize, penColor]);
-
-  useEffect(() => {
-    const canvaElement = canvaContainerRef.current;
-    const dragHandle = dragHandleRef.current;
-    if (!canvaElement || !dragHandle) return;
-
-    let isDragging = false;
-    let offSetX = 0;
-    let offSetY = 0;
-
-    const onMouseMove = (e: MouseEvent) => {
-      if (!isDragging) return;
-      canvaElement.style.left = `${e.clientX - offSetX}px`;
-      canvaElement.style.top = `${e.clientY - offSetY}px`;
-    };
-
-    const onMouseUp = () => {
-      isDragging = false;
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-    };
-    const onMouseDown = (e: MouseEvent) => {
-      if (isDrawing) return;
-      isDragging = true;
-      offSetX = e.clientX - canvaElement.offsetLeft;
-      offSetY = e.clientY - canvaElement.offsetTop;
-      document.addEventListener("mousemove", onMouseMove);
-      document.addEventListener("mouseup", onMouseUp);
-    };
-
-    dragHandle.addEventListener("mousedown", onMouseDown);
-    return () => dragHandle.removeEventListener("mousedown", onMouseDown);
-  }, [isDrawing]);
-
-  useEffect(() => {
     const container = pdfOverlayContainerRef.current;
     if (!container || !pdfSize.width) return;
 
@@ -533,12 +474,11 @@ function PdfEditor({
 
       if (!target) return hideContextMenu();
 
-      if (
-        (target.pdfMeta?.type === "text" && activeToolRef.current === "edit") ||
-        target.pdfMeta?.type === "image" ||
-        target.pdfMeta?.type === "shape"
-      ) {
+      // Only show text context menu if "edit" tool is active and target is text
+      if (activeToolRef.current === "edit" && target.pdfMeta?.type === "text") {
         showContextMenu(target.pdfMeta, evt.clientX, evt.clientY);
+      } else {
+        hideContextMenu();
       }
     });
 
@@ -577,40 +517,6 @@ function PdfEditor({
     canvas.renderAll();
   }, [extractedText, canvasInstance]);
 
-  const handleExportDrawingToPdf = async () => {
-    try {
-      const dataUrl = fabricRef.current?.toDataURL({
-        format: "png",
-        multiplier: 2,
-      });
-      if (!dataUrl || !pdfOverlayFabricRef.current) return;
-
-      const imgElement = new Image();
-      imgElement.crossOrigin = "anonymous";
-      imgElement.addEventListener("load", () => {
-        const scaleX = pdfSize.width / imgElement.width;
-        const scaleY = pdfSize.height / imgElement.height;
-        const scale = Math.min(scaleX, scaleY);
-
-        const img = new FabricImage(imgElement, {
-          left: 50,
-          top: 50,
-          selectable: true,
-          scaleX: scale,
-          scaleY: scale,
-        });
-
-        pdfOverlayFabricRef.current?.add(img);
-        pdfOverlayFabricRef.current?.setActiveObject(img);
-        pdfOverlayFabricRef.current?.renderAll();
-        setTimeout(saveCurrentPageState, 200);
-      });
-      imgElement.src = dataUrl;
-    } catch (error) {
-      console.error("Error in export process:", error);
-    }
-  };
-
   const handleDeleteCanva = () => {
     const activeObject = pdfOverlayFabricRef.current?.getActiveObject();
     if (activeObject) {
@@ -619,8 +525,6 @@ function PdfEditor({
       pdfOverlayFabricRef.current?.renderAll();
     }
   };
-
-  const handleClearCanvas = () => fabricRef.current?.clear();
 
   const [fontSize, setFontSize] = useState("12");
   const [fontFamily, setFontFamily] = useState("Arial");
@@ -696,16 +600,30 @@ function PdfEditor({
       startState = serializeCanvasForPage(canvas);
     };
 
+    const onSelectionCreated = (e: any) => {
+      const obj = e.selected?.[0];
+      if (!obj) return;
+      if (obj.type === "textbox" || obj.type === "i-text") {
+        if (obj.fill) setSelectedColor(obj.fill as string);
+        if (obj.fontFamily) setFontFamily(obj.fontFamily);
+        if (obj.fontSize) setFontSize(String(obj.fontSize));
+      }
+    };
+
     canvas.on("mouse:down", onMouseDown);
     canvas.on("object:modified", onModification);
     canvas.on("object:added", onModification);
     canvas.on("object:removed", onModification);
+    canvas.on("selection:created", onSelectionCreated);
+    canvas.on("selection:updated", onSelectionCreated);
 
     return () => {
       canvas.off("mouse:down", onMouseDown);
       canvas.off("object:modified", onModification);
       canvas.off("object:added", onModification);
       canvas.off("object:removed", onModification);
+      canvas.off("selection:created", onSelectionCreated);
+      canvas.off("selection:updated", onSelectionCreated);
     };
   }, [pageNumber, pages, canvasInstance]);
 
@@ -714,21 +632,6 @@ function PdfEditor({
     lockHistory.current = true;
 
     const prevState = undoStack.current.pop()!;
-
-    // -- Special handling for Drawing Box --
-    if (prevState.pageId === "drawing-box") {
-      const canvas = fabricRef.current;
-      if (canvas) {
-        redoStack.current.push({
-          ...prevState,
-          json: JSON.stringify(canvas.toJSON()),
-        });
-        await canvas.loadFromJSON(prevState.json);
-        canvas.renderAll();
-      }
-      lockHistory.current = false;
-      return;
-    }
 
     const currentPageId = pages[pageNumber - 1]?.id;
 
@@ -774,21 +677,6 @@ function PdfEditor({
     lockHistory.current = true;
 
     const nextState = redoStack.current.pop()!;
-
-    // -- Special handling for Drawing Box --
-    if (nextState.pageId === "drawing-box") {
-      const canvas = fabricRef.current;
-      if (canvas) {
-        undoStack.current.push({
-          ...nextState,
-          json: JSON.stringify(canvas.toJSON()),
-        });
-        await canvas.loadFromJSON(nextState.json);
-        canvas.renderAll();
-      }
-      lockHistory.current = false;
-      return;
-    }
 
     const currentPageId = pages[pageNumber - 1]?.id;
 
@@ -896,80 +784,351 @@ function PdfEditor({
     }
   };
 
-  const activateHighlightMode = () => {
-    if (activeTool === "highlight") return;
-    const canvas = pdfOverlayFabricRef.current;
-    if (!canvas) return;
-    canvas.isDrawingMode = false;
-    canvas.defaultCursor = "crosshair";
-    canvas.on("mouse:down", startHighlighting);
-    setActiveTool("highlight");
-  };
-
-  const startHighlighting = (opt: any) => {
-    const canvas = pdfOverlayFabricRef.current;
-    if (!canvas) return;
-    const pointer = canvas.getPointer(opt.e);
-    const target = opt.target as any;
-
-    if (target?.pdfMeta?.type === "text") {
-      const meta = target.pdfMeta;
-      const rect = new Rect({
-        left: meta.x,
-        top: meta.y - meta.height,
-        width: meta.width,
-        height: meta.height,
-        fill: "yellow",
-        opacity: 0.4,
-        selectable: true,
-        pdfMeta: { type: "highlight", source: "text" },
-      });
-      canvas.add(rect);
-      canvas.setActiveObject(rect);
-      canvas.renderAll();
-      setTimeout(saveCurrentPageState, 100);
-      return;
-    }
-
-    isHighlighting = true;
-    startX = pointer.x;
-    startY = pointer.y;
-    highlightRect = new Rect({
-      left: startX,
-      top: startY,
-      width: 0,
-      height: 0,
-      fill: "yellow",
-      opacity: 0.4,
-      pdfMeta: { type: "highlight", source: "manual" },
-    });
-    canvas.add(highlightRect);
-    canvas.on("mouse:move", updateHighlight);
-    canvas.on("mouse:up", finishHighlight);
-  };
-
-  const updateHighlight = (opt: any) => {
-    if (!isHighlighting || !highlightRect || !pdfOverlayFabricRef.current)
+  const updateHighlight = useCallback((opt: any) => {
+    if (
+      !isHighlightingRef.current ||
+      !highlightRectRef.current ||
+      !pdfOverlayFabricRef.current
+    )
       return;
     const pointer = pdfOverlayFabricRef.current.getPointer(opt.e);
-    highlightRect.set({
-      width: Math.abs(pointer.x - startX),
-      height: Math.abs(pointer.y - startY),
-      left: Math.min(pointer.x, startX),
-      top: Math.min(pointer.y, startY),
+    highlightRectRef.current.set({
+      width: Math.abs(pointer.x - startXRef.current),
+      height: Math.abs(pointer.y - startYRef.current),
+      left: Math.min(pointer.x, startXRef.current),
+      top: Math.min(pointer.y, startYRef.current),
     });
     pdfOverlayFabricRef.current.renderAll();
-  };
+  }, []);
 
-  const finishHighlight = () => {
+  const finishHighlight = useCallback(() => {
     if (pdfOverlayFabricRef.current) {
-      isHighlighting = false;
-      highlightRect = null;
+      isHighlightingRef.current = false;
+      highlightRectRef.current = null;
       pdfOverlayFabricRef.current.off("mouse:move", updateHighlight);
       pdfOverlayFabricRef.current.off("mouse:up", finishHighlight);
       setTimeout(saveCurrentPageState, 100);
     }
+  }, [updateHighlight]);
+
+  const startHighlighting = useCallback(
+    (opt: any) => {
+      if (activeToolRef.current !== "highlight") return;
+      const canvas = pdfOverlayFabricRef.current;
+      if (!canvas) return;
+      const pointer = canvas.getPointer(opt.e);
+      const target = opt.target as any;
+
+      if (target?.pdfMeta?.type === "text") {
+        const meta = target.pdfMeta;
+        const rect = new Rect({
+          left: meta.x,
+          top: meta.y - meta.height,
+          width: meta.width,
+          height: meta.height,
+          fill: "yellow",
+          opacity: 0.4,
+          selectable: true,
+          pdfMeta: { type: "highlight", source: "text" },
+        });
+        canvas.add(rect);
+        canvas.setActiveObject(rect);
+        canvas.renderAll();
+        setTimeout(saveCurrentPageState, 100);
+        return;
+      }
+
+      isHighlightingRef.current = true;
+      startXRef.current = pointer.x;
+      startYRef.current = pointer.y;
+      const newRect = new Rect({
+        left: startXRef.current,
+        top: startYRef.current,
+        width: 0,
+        height: 0,
+        fill: "yellow",
+        opacity: 0.4,
+        pdfMeta: { type: "highlight", source: "manual" },
+      });
+      highlightRectRef.current = newRect;
+      canvas.add(newRect);
+      canvas.on("mouse:move", updateHighlight);
+      canvas.on("mouse:up", finishHighlight);
+    },
+    [updateHighlight, finishHighlight],
+  );
+
+  const activateHighlightMode = () => {
+    setActiveTool("highlight");
+    const canvas = pdfOverlayFabricRef.current;
+    if (canvas) {
+      canvas.isDrawingMode = false;
+    }
   };
+
+  const activateLinkMode = () => {
+    setActiveTool("link");
+    const canvas = pdfOverlayFabricRef.current;
+    if (canvas) {
+      canvas.isDrawingMode = false;
+    }
+  };
+
+  const activateDrawMode = () => {
+    setActiveTool("draw");
+    const canvas = pdfOverlayFabricRef.current;
+    if (canvas) {
+      canvas.isDrawingMode = true;
+      if (!canvas.freeDrawingBrush) {
+        const pencil = new PencilBrush(canvas);
+        canvas.freeDrawingBrush = pencil;
+      }
+      canvas.freeDrawingBrush.width = penSize;
+      canvas.freeDrawingBrush.color = penColor;
+    }
+  };
+
+  useEffect(() => {
+    const canvas = pdfOverlayFabricRef.current;
+    if (!canvas) return;
+
+    if (activeTool === "draw") {
+      canvas.isDrawingMode = true;
+      drawnPathsRef.current = []; // Reset tracked paths
+
+      if (!canvas.freeDrawingBrush) {
+        canvas.freeDrawingBrush = new PencilBrush(canvas);
+      }
+      canvas.freeDrawingBrush.width = penSize;
+      canvas.freeDrawingBrush.color = penColor;
+
+      const handlePathCreated = (e: any) => {
+        drawnPathsRef.current.push(e.path);
+
+        // Calculate bounds of ALL drawn paths to position the button correctly
+        let minX = Infinity,
+          minY = Infinity,
+          maxX = -Infinity,
+          maxY = -Infinity;
+
+        drawnPathsRef.current.forEach((p: any) => {
+          const { left, top, width, height } = p.getBoundingRect();
+          if (left < minX) minX = left;
+          if (top < minY) minY = top;
+          if (left + width > maxX) maxX = left + width;
+          if (top + height > maxY) maxY = top + height;
+        });
+
+        if (minX !== Infinity) {
+          setLastDrawingBounds({
+            left: minX,
+            top: minY,
+            width: maxX - minX,
+            height: maxY - minY,
+          });
+        }
+
+        setTimeout(saveCurrentPageState, 100);
+      };
+
+      canvas.on("path:created", handlePathCreated);
+      return () => {
+        canvas.isDrawingMode = false;
+        canvas.off("path:created", handlePathCreated);
+      };
+    } else {
+      canvas.isDrawingMode = false;
+    }
+  }, [activeTool, penSize, penColor, saveCurrentPageState]);
+
+  // Highlight mode effect
+  useEffect(() => {
+    const canvas = pdfOverlayFabricRef.current;
+    if (!canvas) return;
+
+    if (activeTool === "highlight") {
+      canvas.isDrawingMode = false;
+      canvas.defaultCursor = "crosshair";
+      canvas.on("mouse:down", startHighlighting);
+    } else if (activeTool === "link") {
+      canvas.isDrawingMode = false;
+      canvas.defaultCursor = "crosshair";
+      canvas.on("mouse:down", startLinkDrawing);
+    }
+
+    return () => {
+      canvas.off("mouse:down", startHighlighting);
+      canvas.off("mouse:down", startLinkDrawing);
+      if (isHighlightingRef.current) {
+        canvas.off("mouse:move", updateHighlight);
+        canvas.off("mouse:up", finishHighlight);
+        if (highlightRectRef.current) {
+          canvas.remove(highlightRectRef.current);
+          canvas.renderAll();
+        }
+        isHighlightingRef.current = false;
+        highlightRectRef.current = null;
+      }
+      if (isDrawingLinkRef.current) {
+        canvas.off("mouse:move", updateLinkDrawing);
+        canvas.off("mouse:up", finishLinkDrawing);
+        if (linkRectRef.current) {
+          canvas.remove(linkRectRef.current);
+          canvas.renderAll();
+        }
+        isDrawingLinkRef.current = false;
+        linkRectRef.current = null;
+      }
+    };
+  }, [activeTool, startHighlighting, updateHighlight, finishHighlight]);
+
+  // Link drawing handlers
+  const startLinkDrawing = (o: any) => {
+    const canvas = pdfOverlayFabricRef.current;
+    if (!canvas) return;
+
+    isDrawingLinkRef.current = true;
+    const pointer = canvas.getPointer(o.e);
+    linkStartRef.current = { x: pointer.x, y: pointer.y };
+
+    const rect = new Rect({
+      left: pointer.x,
+      top: pointer.y,
+      width: 0,
+      height: 0,
+      fill: "rgba(59, 130, 246, 0.2)",
+      stroke: "#3b82f6",
+      strokeWidth: 2,
+      selectable: false,
+    });
+
+    linkRectRef.current = rect;
+    canvas.add(rect);
+
+    canvas.on("mouse:move", updateLinkDrawing);
+    canvas.on("mouse:up", finishLinkDrawing);
+  };
+
+  const updateLinkDrawing = (o: any) => {
+    if (
+      !isDrawingLinkRef.current ||
+      !linkStartRef.current ||
+      !linkRectRef.current
+    )
+      return;
+    const canvas = pdfOverlayFabricRef.current;
+    if (!canvas) return;
+
+    const pointer = canvas.getPointer(o.e);
+    const startX = linkStartRef.current.x;
+    const startY = linkStartRef.current.y;
+
+    if (startX > pointer.x) {
+      linkRectRef.current.set({ left: Math.abs(pointer.x) });
+    }
+    if (startY > pointer.y) {
+      linkRectRef.current.set({ top: Math.abs(pointer.y) });
+    }
+
+    linkRectRef.current.set({
+      width: Math.abs(startX - pointer.x),
+      height: Math.abs(startY - pointer.y),
+    });
+
+    canvas.renderAll();
+  };
+
+  const finishLinkDrawing = () => {
+    const canvas = pdfOverlayFabricRef.current;
+    if (!canvas || !linkRectRef.current) return;
+
+    isDrawingLinkRef.current = false;
+    canvas.off("mouse:move", updateLinkDrawing);
+    canvas.off("mouse:up", finishLinkDrawing);
+
+    const url = prompt("Enter URL for this link:", "https://");
+    if (url) {
+      linkRectRef.current.set({
+        selectable: true,
+        pdfMeta: { type: "link", url: url },
+      });
+      canvas.setActiveObject(linkRectRef.current);
+      saveCurrentPageState();
+    } else {
+      canvas.remove(linkRectRef.current);
+    }
+
+    linkRectRef.current = null;
+    linkStartRef.current = null;
+    canvas.renderAll();
+    setActiveTool("select");
+  };
+
+  const handleFinishDrawing = () => {
+    const canvas = pdfOverlayFabricRef.current;
+    if (!canvas) return;
+
+    // Turn off drawing mode
+    canvas.isDrawingMode = false;
+    setActiveTool("select");
+
+    const paths = drawnPathsRef.current.filter((p) => p.canvas === canvas);
+    if (paths.length === 0) return;
+
+    // Remove individual paths from canvas
+    paths.forEach((p) => canvas.remove(p));
+
+    // Create group
+    const group = new Group(paths, {
+      originX: "center",
+      originY: "center",
+      selectable: true,
+    });
+
+    canvas.add(group);
+    canvas.setActiveObject(group);
+    canvas.renderAll();
+
+    // Enable "follow mode"
+    isPlacingDrawingRef.current = true;
+    toast.success("Click to place your drawing");
+  };
+
+  // Effect to handle drawing placement (follow cursor)
+  useEffect(() => {
+    const canvas = pdfOverlayFabricRef.current;
+    if (!canvas) return;
+
+    const handleMove = (opt: any) => {
+      if (isPlacingDrawingRef.current && canvas.getActiveObject()) {
+        const ptr = canvas.getPointer(opt.e);
+        const obj = canvas.getActiveObject();
+        if (obj) {
+          obj.set({
+            left: ptr.x,
+            top: ptr.y,
+          });
+          obj.setCoords();
+          canvas.renderAll();
+        }
+      }
+    };
+
+    const handleDown = () => {
+      if (isPlacingDrawingRef.current) {
+        isPlacingDrawingRef.current = false;
+        saveCurrentPageState();
+      }
+    };
+
+    canvas.on("mouse:move", handleMove);
+    canvas.on("mouse:down", handleDown);
+
+    return () => {
+      canvas.off("mouse:move", handleMove);
+      canvas.off("mouse:down", handleDown);
+    };
+  }, [saveCurrentPageState]);
 
   const handleAddShape = (type: string) => {
     const canvas = pdfOverlayFabricRef.current;
@@ -996,7 +1155,22 @@ function PdfEditor({
         strokeWidth: 2,
         pdfMeta: { type: "shape", shape: "circle" },
       });
-    else if (type === "redact")
+    else if (type === "line")
+      shape = new Line([50, 100, 200, 100], {
+        stroke: selectedColor,
+        strokeWidth: 4,
+        pdfMeta: { type: "shape", shape: "line" },
+      });
+    else if (type === "arrow") {
+      shape = new Path("M 0 0 L 200 0 L 190 10 M 200 0 L 190 -10", {
+        left: 100,
+        top: 100,
+        stroke: selectedColor,
+        strokeWidth: 2,
+        fill: "transparent",
+        pdfMeta: { type: "shape", shape: "arrow" },
+      });
+    } else if (type === "redact")
       shape = new Rect({
         left: 100,
         top: 100,
@@ -1005,10 +1179,119 @@ function PdfEditor({
         fill: "black",
         pdfMeta: { type: "redact-preview" },
       });
+    else if (type === "whiteout")
+      shape = new Rect({
+        left: 100,
+        top: 100,
+        width: 150,
+        height: 50,
+        fill: "white",
+        pdfMeta: { type: "whiteout-preview" },
+      });
+    else if (type === "stamp") {
+      const text = new Textbox("CONFIDENTIAL", {
+        fontSize: 24,
+        fill: "red",
+        fontWeight: "bold",
+        fontFamily: "Arial",
+        originX: "center",
+        originY: "center",
+        textAlign: "center",
+      });
+      const border = new Rect({
+        width: text.width + 20,
+        height: text.height + 20,
+        fill: "transparent",
+        stroke: "red",
+        strokeWidth: 3,
+        originX: "center",
+        originY: "center",
+      });
+      shape = new Group([border, text], {
+        left: 100,
+        top: 100,
+        angle: -15,
+        opacity: 0.8,
+        // @ts-ignore - pdfMeta is a custom property added to track stamp metadata
+        pdfMeta: { type: "stamp" },
+      });
+    } else if (type === "note")
+      shape = new Textbox("Sticky Note", {
+        left: 100,
+        top: 100,
+        width: 150,
+        fontSize: 14,
+        fill: "#000",
+        backgroundColor: "#fef08a",
+        fontFamily: "Arial",
+        borderColor: "#eab308",
+        pdfMeta: { type: "sticky-note" },
+      });
 
     if (shape) {
       canvas.add(shape);
       canvas.setActiveObject(shape);
+      canvas.renderAll();
+      setTimeout(saveCurrentPageState, 100);
+    }
+  };
+
+  const handleAddField = (type: string) => {
+    const canvas = pdfOverlayFabricRef.current;
+    if (!canvas) return;
+
+    let field: any;
+    if (type === "text") {
+      field = new Textbox("Text Field", {
+        left: 100,
+        top: 100,
+        width: 150,
+        fontSize: 14,
+        fill: "#000",
+        backgroundColor: "#eef2ff",
+        borderColor: "#6366f1",
+        borderScaleFactor: 2,
+        padding: 5,
+        pdfMeta: {
+          type: "form-field",
+          fieldType: "text",
+          name: `field_${Date.now()}`,
+        },
+      });
+    } else if (type === "checkbox") {
+      field = new Rect({
+        left: 100,
+        top: 100,
+        width: 20,
+        height: 20,
+        fill: "#fff",
+        stroke: "#000",
+        strokeWidth: 2,
+        pdfMeta: {
+          type: "form-field",
+          fieldType: "checkbox",
+          name: `check_${Date.now()}`,
+        },
+      });
+    } else if (type === "radio") {
+      field = new Circle({
+        left: 100,
+        top: 100,
+        radius: 10,
+        fill: "#fff",
+        stroke: "#000",
+        strokeWidth: 2,
+        pdfMeta: {
+          type: "form-field",
+          fieldType: "radio",
+          name: `radio_${Date.now()}`,
+        },
+      });
+    }
+
+    if (field) {
+      canvas.add(field);
+      canvas.setActiveObject(field);
       canvas.renderAll();
       setTimeout(saveCurrentPageState, 100);
     }
@@ -1020,34 +1303,89 @@ function PdfEditor({
     try {
       if (!originalPdfSource) return toast.error("No PDF loaded");
 
+      setIsLoading(true);
       saveCurrentPageState(pageNumber);
+
       const existingPdfBytes = await getOriginalPdfBytes(originalPdfSource);
       const originalPdfDoc = await PDFDocument.load(existingPdfBytes);
       const newPdfDoc = await PDFDocument.create();
 
-      const tempCanvasEl = document.createElement("canvas");
-      tempCanvasEl.width = pdfSize.width || 595;
-      tempCanvasEl.height = pdfSize.height || 842;
-      const tempFabricCanvas = new Canvas(tempCanvasEl);
+      // Determine modified pages and SIGNIFICANT objects
+      const modifiedStates: Record<string, any> = {};
+      for (const [id, state] of Object.entries(pageCanvasDataRef.current)) {
+        const parsed = JSON.parse(state);
+        if (
+          parsed.objects &&
+          parsed.objects.some((obj: any) => !obj.isHitbox)
+        ) {
+          modifiedStates[id] = state;
+        }
+      }
 
-      // Determine the scale factor between screen pixels (pdfSize) and PDF points
-      const currentPdfPage = originalPdfDoc.getPages()[pageNumber - 1];
-      const { width: currentPdfWidth } = currentPdfPage.getSize();
-      const scaleFactor = currentPdfWidth / pdfSize.width;
+      // Batch copy ALL pages at once (extremely fast even for 1000+ pages)
+      const allIndices = pages.map((p) => p.page - 1);
+      const copiedPages = await newPdfDoc.copyPages(originalPdfDoc, allIndices);
 
-      for (const item of pages) {
-        const [copiedPage] = await newPdfDoc.copyPages(originalPdfDoc, [
-          item.page - 1,
-        ]);
+      for (let i = 0; i < copiedPages.length; i++) {
+        const copiedPage = copiedPages[i];
         newPdfDoc.addPage(copiedPage);
 
-        const savedState = pageCanvasData[item.id];
+        const item = pages[i];
+        const savedState = modifiedStates[item.id];
+
         if (savedState) {
+          const tempCanvasEl = document.createElement("canvas");
+          const { width: currentPdfWidth, height: currentPdfHeight } =
+            copiedPage.getSize();
+
+          // Set canvas to EXACT PDF point dimensions for perfect mapping
+          tempCanvasEl.width = currentPdfWidth;
+          tempCanvasEl.height = currentPdfHeight;
+          const tempFabricCanvas = new Canvas(tempCanvasEl);
+
+          // Calculate scale factor relative to screen dimensions
+          const scaleFactor = currentPdfWidth / pdfSize.width;
+
           await tempFabricCanvas.loadFromJSON(savedState);
 
-          // Scale objects to match PDF dimensions
+          // Scale objects from screen space to PDF point space and remove hitboxes
           const objects = tempFabricCanvas.getObjects();
+          const formObjects: any[] = [];
+          const linkObjects: any[] = [];
+
           objects.forEach((obj: any) => {
+            if (obj.isHitbox) {
+              tempFabricCanvas.remove(obj);
+              return;
+            }
+
+            // Extract special objects (forms, links)
+            if (obj.pdfMeta && obj.pdfMeta.type === "form-field") {
+              formObjects.push({
+                ...obj.toObject(["pdfMeta"]),
+                left: (obj.left || 0) * scaleFactor,
+                top: (obj.top || 0) * scaleFactor,
+                width: obj.getScaledWidth() * scaleFactor,
+                height: obj.getScaledHeight() * scaleFactor,
+                pdfMeta: obj.pdfMeta,
+              });
+              tempFabricCanvas.remove(obj); // Don't burn into image
+              return;
+            }
+
+            if (obj.pdfMeta && obj.pdfMeta.type === "link") {
+              linkObjects.push({
+                ...obj.toObject(["pdfMeta"]),
+                left: (obj.left || 0) * scaleFactor,
+                top: (obj.top || 0) * scaleFactor,
+                width: obj.getScaledWidth() * scaleFactor,
+                height: obj.getScaledHeight() * scaleFactor,
+                pdfMeta: obj.pdfMeta,
+              });
+              tempFabricCanvas.remove(obj); // Don't burn into image
+              return;
+            }
+
             obj.scaleX = (obj.scaleX || 1) * scaleFactor;
             obj.scaleY = (obj.scaleY || 1) * scaleFactor;
             obj.left = (obj.left || 0) * scaleFactor;
@@ -1056,37 +1394,126 @@ function PdfEditor({
           });
 
           tempFabricCanvas.renderAll();
+
+          // Use PNG for transparency (required for overlays)
+          // Optimized multiplier (1.0) and PNG format to keep size minimal
           const dataUrl = tempFabricCanvas.toDataURL({
             format: "png",
             multiplier: 2,
           });
+
           const embeddedImage = await newPdfDoc.embedPng(
             await fetch(dataUrl).then((r) => r.arrayBuffer()),
           );
-          const { width, height } = copiedPage.getSize();
-          copiedPage.drawImage(embeddedImage, { x: 0, y: 0, width, height });
-          tempFabricCanvas.clear();
+
+          copiedPage.drawImage(embeddedImage, {
+            x: 0,
+            y: 0,
+            width: currentPdfWidth,
+            height: currentPdfHeight,
+          });
+
+          // --- Process Forms ---
+          if (formObjects.length > 0) {
+            const form = newPdfDoc.getForm();
+            formObjects.forEach((obj) => {
+              const { left, top, width, height, pdfMeta } = obj;
+              // PDF coordinates: (0,0) is bottom-left. Fabric: (0,0) is top-left.
+              // y = pageHeight - top - height
+              const pdfY = currentPdfHeight - top - height;
+
+              if (pdfMeta.fieldType === "text") {
+                const textField = form.createTextField(pdfMeta.name);
+                textField.setText("Enter text");
+                textField.addToPage(copiedPage, {
+                  x: left,
+                  y: pdfY,
+                  width,
+                  height,
+                });
+              } else if (pdfMeta.fieldType === "checkbox") {
+                const checkBox = form.createCheckBox(pdfMeta.name);
+                checkBox.addToPage(copiedPage, {
+                  x: left,
+                  y: pdfY,
+                  width,
+                  height,
+                });
+              } else if (pdfMeta.fieldType === "radio") {
+                // Radio groups are complex, simplistic implementation for now
+                // Ideally we group by name, but here unique names are generated
+                const radioGroup = form.createRadioGroup(pdfMeta.name);
+                radioGroup.addOptionToPage("Yes", copiedPage, {
+                  x: left,
+                  y: pdfY,
+                  width,
+                  height,
+                });
+              }
+            });
+          }
+
+          // --- Process Links ---
+          if (linkObjects.length > 0) {
+            linkObjects.forEach((obj) => {
+              const { left, top, width, height, pdfMeta } = obj;
+              const pdfY = currentPdfHeight - top - height;
+
+              // Create Link Annotation
+              // pdf-lib doesn't have a high-level `addLink` for external URLs easily accessible on `page`
+              // but we can add an annotation.
+
+              // Actually, creating a link annotation via low-level objects
+              const linkAnnot = newPdfDoc.context.obj({
+                Type: "Annot",
+                Subtype: "Link",
+                Rect: [left, pdfY, left + width, pdfY + height],
+                Border: [0, 0, 2], // Blue border
+                C: [0, 0, 1], // Color blue
+                A: {
+                  Type: "Action",
+                  S: "URI",
+                  URI: pdfMeta.url,
+                },
+              });
+
+              const linkRef = newPdfDoc.context.register(linkAnnot);
+
+              let annots = copiedPage.node.Annots();
+              if (!annots) {
+                annots = newPdfDoc.context.obj([]);
+                copiedPage.node.set(PDFName.of("Annots"), annots);
+              }
+              annots.push(linkRef);
+            });
+          }
+
+          // Clean up
+          tempFabricCanvas.dispose();
         }
       }
 
       const pdfBytes = await newPdfDoc.save();
 
-      if (onSave) {
-        onSave(pdfBytes, fileName);
-        return;
-      }
+      // if (onSave) {
+      //   onSave(pdfBytes, fileName);
+      //   setIsLoading(false);
+      //   return;
+      // }
 
       const url = URL.createObjectURL(
         new Blob([pdfBytes as any], { type: "application/pdf" }),
       );
       const link = document.createElement("a");
       link.href = url;
-      link.download = fileName || "annotated_document.pdf";
+      link.download = fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`;
       link.click();
       toast.success("Document saved successfully!");
     } catch (e) {
       console.error(e);
       toast.error("Failed to save document");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -1130,18 +1557,43 @@ function PdfEditor({
     }
   };
 
+  const addImageToCanvas = (url: string, options: any = {}) => {
+    const canvas = pdfOverlayFabricRef.current;
+    if (!canvas) return;
+    FabricImage.fromURL(url).then((img) => {
+      // Calculate a smaller size (e.g., max 200px width/height)
+      const maxSize = 200;
+      let scaleX = 0.5;
+      let scaleY = 0.5;
+
+      if (img.width && img.height) {
+        const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+        scaleX = scale;
+        scaleY = scale;
+      }
+
+      img.set({
+        left: 100,
+        top: 100,
+        scaleX: scaleX,
+        scaleY: scaleY,
+        ...options,
+      });
+      canvas.add(img);
+      canvas.setActiveObject(img);
+      canvas.renderAll();
+      setTimeout(saveCurrentPageState, 100);
+    });
+  };
+
   const handleAddImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (f) => {
       const data = f.target?.result as string;
-      if (data && pdfOverlayFabricRef.current) {
-        FabricImage.fromURL(data).then((img) => {
-          img.set({ left: 100, top: 100, scaleX: 0.5, scaleY: 0.5 });
-          pdfOverlayFabricRef.current?.add(img);
-          pdfOverlayFabricRef.current?.setActiveObject(img);
-        });
+      if (data) {
+        addImageToCanvas(data);
       }
     };
     reader.readAsDataURL(file);
@@ -1194,13 +1646,19 @@ function PdfEditor({
         toggleTextStyle={ToggleTextStyle}
         activateHighlightMode={activateHighlightMode}
         handleAddShape={handleAddShape}
-        handleShowDrawingBox={() => {
-          setActiveTool("draw");
-          setStartedDrawing(true);
-        }}
+        activateDrawMode={activateDrawMode}
+        penColor={penColor}
+        setPenColor={setPenColor}
+        penSize={penSize}
+        setPenSize={setPenSize}
         handleAddImage={handleAddImage}
+        addImageToCanvas={addImageToCanvas}
         onUndo={undo}
         onRedo={redo}
+        onFinishDrawing={handleFinishDrawing}
+        handleAddField={handleAddField}
+        activateLinkMode={activateLinkMode}
+        onEnterEditMode={enableTextEditMode}
       />
 
       {/* MAIN CONTENT AREA */}
@@ -1438,112 +1896,36 @@ function PdfEditor({
                   toast.error("Failed to load PDF page");
                   setIsLoading(false);
                 }}
-              />
+              >
+                {activeTool === "draw" && lastDrawingBounds && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleFinishDrawing();
+                    }}
+                    style={{
+                      position: "absolute",
+                      left:
+                        (lastDrawingBounds.left +
+                          lastDrawingBounds.width +
+                          10) *
+                        (zoomScale / 100),
+                      top: lastDrawingBounds.top * (zoomScale / 100),
+                      zIndex: 50,
+                    }}
+                    className="p-2 bg-green-500 text-white rounded-full shadow-lg hover:bg-green-600 transition-all animate-in fade-in zoom-in duration-200"
+                    title="Done Drawing"
+                  >
+                    <Check size={20} />
+                  </button>
+                )}
+              </PDFBody>
             </div>
           </div>
         )}
       </div>
 
-      {/* DRAWING BOX */}
-      {activeTool === "draw" && (
-        <div
-          ref={canvaContainerRef}
-          className="fixed top-24 left-1/2 -translate-x-1/2 bg-white shadow-2xl border border-gray-200 rounded-xl z-9999"
-          style={{ width: 380, height: 260 }}
-        >
-          <div
-            ref={dragHandleRef}
-            className="cursor-move flex justify-between items-center px-4 py-2 bg-gray-100/80 backdrop-blur-sm border-b border-gray-200 rounded-t-xl"
-          >
-            <span className="text-[13px] font-medium text-gray-700">
-              Draw box
-            </span>
-            <div className="flex items-center gap-3">
-              {startedDrawing && (
-                <>
-                  <button
-                    onClick={handleClearCanvas}
-                    title="Erase"
-                    className="text-gray-500 hover:text-red-500 transition"
-                  >
-                    <FaEraser size={16} />
-                  </button>
-                  <button
-                    onClick={handleExportDrawingToPdf}
-                    title="Save Signature"
-                    className="text-gray-500 hover:text-green-600 transition"
-                  >
-                    <FaCheck size={16} />
-                  </button>
-                </>
-              )}
-              <div className="flex items-center gap-3 mr-3">
-                <input
-                  type="color"
-                  value={penColor}
-                  onChange={(e) => setPenColor(e.target.value)}
-                  className="w-6 h-6 rounded cursor-pointer"
-                />
-                <select
-                  value={penSize}
-                  onChange={(e) => setPenSize(Number(e.target.value))}
-                  className="text-xs bg-gray-100 border border-gray-300 rounded px-1 py-0.5"
-                >
-                  <option value={2}>Thin</option>
-                  <option value={4}>Medium</option>
-                  <option value={6}>Thick</option>
-                  <option value={8}>Extra Thick</option>
-                </select>
-                <button
-                  onClick={undo}
-                  title="Undo"
-                  className="text-gray-500 hover:text-blue-500 transition"
-                >
-                  <FaUndo size={15} />
-                </button>
-                <button
-                  onClick={redo}
-                  title="Redo"
-                  className="text-gray-500 hover:text-blue-500 transition"
-                >
-                  <FaRedo size={15} />
-                </button>
-              </div>
-              <button
-                onClick={() => {
-                  setActiveTool("text");
-                  setStartedDrawing(false);
-                }}
-                title="Close"
-                className="text-gray-500 hover:text-red-500 transition"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-          <div
-            className="relative w-full h-[calc(100%-44px)] bg-white rounded-b-xl"
-            onMouseDown={() => {
-              setIsDrawing(true);
-              setStartedDrawing(true);
-            }}
-            onMouseUp={() => setIsDrawing(false)}
-          >
-            {!startedDrawing && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 text-sm pointer-events-none select-none z-10">
-                <div className="flex items-center gap-2">
-                  <span>✍️</span>
-                  <span>Draw your signature</span>
-                </div>
-              </div>
-            )}
-            <div
-              className="absolute inset-0 z-20 rounded-b-xl"
-              ref={canvasContainerRef}
-            />
-          </div>
-        </div>
-      )}
+      {/* DRAWING BOX REMOVED - Direct drawing on PDF enabled */}
     </div>
   );
 }

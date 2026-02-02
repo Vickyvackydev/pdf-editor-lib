@@ -26,6 +26,7 @@ export const PDFBody = ({
   pdfOverlayFabricRef,
   hideContextMenu,
   handleLoadError,
+  children,
 }: {
   currentPage: number;
   zoom: number;
@@ -40,6 +41,7 @@ export const PDFBody = ({
   contextMenu: ContextMenu;
   hideContextMenu: () => void;
   handleLoadError: (error: Error) => void;
+  children?: React.ReactNode;
 }) => {
   return (
     <div
@@ -77,7 +79,7 @@ export const PDFBody = ({
                 handleEditPdfText(
                   contextMenu.text,
                   pdfOverlayFabricRef,
-                  hideContextMenu
+                  hideContextMenu,
                 )
               }
               className="block px-3 py-1 hover:bg-gray-100 w-full text-left"
@@ -90,7 +92,7 @@ export const PDFBody = ({
                 handleMaskPdfText(
                   contextMenu.text,
                   pdfOverlayFabricRef,
-                  hideContextMenu
+                  hideContextMenu,
                 )
               }
               className="block px-3 py-1 hover:bg-gray-100 w-full text-left"
@@ -99,11 +101,21 @@ export const PDFBody = ({
             </button>
 
             <button
+              onClick={() => {
+                navigator.clipboard.writeText(contextMenu.text.str);
+                hideContextMenu();
+              }}
+              className="block px-3 py-1 hover:bg-gray-100 w-full text-left"
+            >
+              Copy Text
+            </button>
+
+            <button
               onClick={() =>
                 handleReplacePdfText(
                   contextMenu.text,
                   pdfOverlayFabricRef,
-                  hideContextMenu
+                  hideContextMenu,
                 )
               }
               className="block px-3 py-1 hover:bg-gray-100 w-full text-left"
@@ -131,6 +143,7 @@ export const PDFBody = ({
             transformOrigin: "top left",
           }}
         />
+        {children}
       </div>
     </div>
   );

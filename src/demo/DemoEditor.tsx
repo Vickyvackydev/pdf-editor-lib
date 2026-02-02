@@ -7,6 +7,18 @@ function DemoEditor() {
 
   const handleSave = (pdfBytes: Uint8Array, fileName: string) => {
     console.log("Saved PDF bytes:", pdfBytes.length);
+
+    // Trigger actual download
+    const blob = new Blob([pdfBytes as any], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
     alert(
       `Saved ${fileName} with ${pdfBytes.length} bytes! Check console for details.`,
     );
