@@ -18,7 +18,7 @@ import React, {
   useCallback,
   type RefObject,
 } from "react";
-import toast from "react-hot-toast";
+import toast from "../utils/toast";
 import { FileText, Upload, Search, Plus, Minus, Check } from "lucide-react";
 
 import { pdfjs } from "react-pdf";
@@ -44,11 +44,13 @@ export interface PdfEditorProps {
   fileName?: string;
   onSave?: (pdfBytes: Uint8Array, fileName: string) => void;
   onBack?: () => void;
+  loading?: boolean;
 }
 
 function PdfEditor({
   fileUrl: initialFileUrl,
   fileName: initialFileName,
+
   onSave,
   onBack,
 }: PdfEditorProps) {
@@ -91,6 +93,7 @@ function PdfEditor({
   const pdfPageRef = useRef<HTMLDivElement | null>(null);
   const [pdfSize, setPdfSize] = useState({ width: 0, height: 0 });
   const [activeTool, setActiveTool] = useState("text");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const activeToolRef = useRef(activeTool);
   useEffect(() => {
     activeToolRef.current = activeTool;
@@ -187,7 +190,7 @@ function PdfEditor({
       lastLoadedPage.current = null;
       setPageNumber(targetPage);
     } catch (error) {
-      console.warn("❌ [Navigation] Error during page switch", error);
+      console.warn(" [Navigation] Error during page switch", error);
     } finally {
       setTimeout(() => {
         isNavigatingRef.current = false;
@@ -216,7 +219,7 @@ function PdfEditor({
         );
         lastLoadedPage.current = pageId;
       } catch (error) {
-        console.warn(`❌ [Load] Failed for page ID ${pageId}`, error);
+        console.warn(` [Load] Failed for page ID ${pageId}`, error);
         lastLoadedPage.current = pageId;
       }
     };
@@ -529,12 +532,30 @@ function PdfEditor({
   const [fontSize, setFontSize] = useState("12");
   const [fontFamily, setFontFamily] = useState("Arial");
 
+  const getCanvasVisibleOrigin = () => {
+    if (!viewerRef.current || !pdfPageRef.current) return { x: 0, y: 0 };
+    // 1. Get the screen coordinates of the scroll container and the actual PDF page
+    const containerRect = viewerRef.current.getBoundingClientRect();
+    const pageRect = pdfPageRef.current.getBoundingClientRect();
+    const zoomFactor = zoomScale / 100;
+    // 2. Calculate the difference (how much the page is scrolled up/left)
+    // If pageRect.top is -500 (scrolled up), and containerRect.top is 0, offset is 500.
+    const visualOffsetX = Math.max(0, containerRect.left - pageRect.left);
+    const visualOffsetY = Math.max(0, containerRect.top - pageRect.top);
+    // 3. Convert screen pixels back to unscaled canvas coordinates
+    return {
+      x: visualOffsetX / zoomFactor,
+      y: visualOffsetY / zoomFactor,
+    };
+  };
+
   const handleAddText = () => {
     const canvas = pdfOverlayFabricRef.current;
     if (!canvas) return;
+    const { x, y } = getCanvasVisibleOrigin();
     const textBox = new Textbox("Enter text here", {
-      left: 100,
-      top: 100,
+      left: x + 100,
+      top: y + 100,
       fontSize: Number(fontSize),
       fontFamily: fontFamily,
       editable: true,
@@ -1133,11 +1154,13 @@ function PdfEditor({
   const handleAddShape = (type: string) => {
     const canvas = pdfOverlayFabricRef.current;
     if (!canvas) return;
+    const { x, y } = getCanvasVisibleOrigin();
+
     let shape: any;
     if (type === "rect")
       shape = new Rect({
-        left: 100,
-        top: 100,
+        left: x + 100,
+        top: y + 100,
         width: 100,
         height: 100,
         fill: "transparent",
@@ -1147,8 +1170,8 @@ function PdfEditor({
       });
     else if (type === "circle")
       shape = new Circle({
-        left: 150,
-        top: 150,
+        left: x + 150,
+        top: y + 150,
         radius: 50,
         fill: "transparent",
         stroke: selectedColor,
@@ -1156,15 +1179,15 @@ function PdfEditor({
         pdfMeta: { type: "shape", shape: "circle" },
       });
     else if (type === "line")
-      shape = new Line([50, 100, 200, 100], {
+      shape = new Line([x + 50, y + 100, x + 200, y + 100], {
         stroke: selectedColor,
         strokeWidth: 4,
         pdfMeta: { type: "shape", shape: "line" },
       });
     else if (type === "arrow") {
       shape = new Path("M 0 0 L 200 0 L 190 10 M 200 0 L 190 -10", {
-        left: 100,
-        top: 100,
+        left: x + 100,
+        top: y + 100,
         stroke: selectedColor,
         strokeWidth: 2,
         fill: "transparent",
@@ -1172,8 +1195,8 @@ function PdfEditor({
       });
     } else if (type === "redact")
       shape = new Rect({
-        left: 100,
-        top: 100,
+        left: x + 100,
+        top: y + 100,
         width: 150,
         height: 50,
         fill: "black",
@@ -1181,8 +1204,8 @@ function PdfEditor({
       });
     else if (type === "whiteout")
       shape = new Rect({
-        left: 100,
-        top: 100,
+        left: x + 100,
+        top: y + 100,
         width: 150,
         height: 50,
         fill: "white",
@@ -1208,8 +1231,8 @@ function PdfEditor({
         originY: "center",
       });
       shape = new Group([border, text], {
-        left: 100,
-        top: 100,
+        left: x + 100,
+        top: y + 100,
         angle: -15,
         opacity: 0.8,
         // @ts-ignore - pdfMeta is a custom property added to track stamp metadata
@@ -1217,8 +1240,8 @@ function PdfEditor({
       });
     } else if (type === "note")
       shape = new Textbox("Sticky Note", {
-        left: 100,
-        top: 100,
+        left: x + 100,
+        top: y + 100,
         width: 150,
         fontSize: 14,
         fill: "#000",
@@ -1239,12 +1262,13 @@ function PdfEditor({
   const handleAddField = (type: string) => {
     const canvas = pdfOverlayFabricRef.current;
     if (!canvas) return;
+    const { x, y } = getCanvasVisibleOrigin();
 
     let field: any;
     if (type === "text") {
       field = new Textbox("Text Field", {
-        left: 100,
-        top: 100,
+        left: x + 100,
+        top: y + 100,
         width: 150,
         fontSize: 14,
         fill: "#000",
@@ -1260,8 +1284,8 @@ function PdfEditor({
       });
     } else if (type === "checkbox") {
       field = new Rect({
-        left: 100,
-        top: 100,
+        left: x + 100,
+        top: y + 100,
         width: 20,
         height: 20,
         fill: "#fff",
@@ -1275,8 +1299,8 @@ function PdfEditor({
       });
     } else if (type === "radio") {
       field = new Circle({
-        left: 100,
-        top: 100,
+        left: x + 100,
+        top: y + 100,
         radius: 10,
         fill: "#fff",
         stroke: "#000",
@@ -1299,208 +1323,205 @@ function PdfEditor({
 
   const pdfId = fileUrl || "default-pdf";
 
-  const handleSaveDocument = async () => {
+  const generateFinalPdf = async () => {
+    if (!originalPdfSource) throw new Error("No PDF loaded");
+
+    // Save current page state first
+    saveCurrentPageState(pageNumber);
+
+    const existingPdfBytes = await getOriginalPdfBytes(originalPdfSource);
+    const originalPdfDoc = await PDFDocument.load(existingPdfBytes);
+    const newPdfDoc = await PDFDocument.create();
+
+    // Determine modified pages and SIGNIFICANT objects
+    const modifiedStates: Record<string, any> = {};
+    for (const [id, state] of Object.entries(pageCanvasDataRef.current)) {
+      const parsed = JSON.parse(state);
+      if (parsed.objects && parsed.objects.some((obj: any) => !obj.isHitbox)) {
+        modifiedStates[id] = state;
+      }
+    }
+
+    // Batch copy ALL pages at once (extremely fast even for 1000+ pages)
+    const allIndices = pages.map((p) => p.page - 1);
+    const copiedPages = await newPdfDoc.copyPages(originalPdfDoc, allIndices);
+
+    for (let i = 0; i < copiedPages.length; i++) {
+      const copiedPage = copiedPages[i];
+      newPdfDoc.addPage(copiedPage);
+
+      const item = pages[i];
+      const savedState = modifiedStates[item.id];
+
+      if (savedState) {
+        const tempCanvasEl = document.createElement("canvas");
+        const { width: currentPdfWidth, height: currentPdfHeight } =
+          copiedPage.getSize();
+
+        // Set canvas to EXACT PDF point dimensions for perfect mapping
+        tempCanvasEl.width = currentPdfWidth;
+        tempCanvasEl.height = currentPdfHeight;
+        const tempFabricCanvas = new Canvas(tempCanvasEl);
+
+        // Calculate scale factor relative to screen dimensions
+        const scaleFactor = currentPdfWidth / pdfSize.width;
+
+        await tempFabricCanvas.loadFromJSON(savedState);
+
+        // Scale objects from screen space to PDF point space and remove hitboxes
+        const objects = tempFabricCanvas.getObjects();
+        const formObjects: any[] = [];
+        const linkObjects: any[] = [];
+
+        objects.forEach((obj: any) => {
+          if (obj.isHitbox) {
+            tempFabricCanvas.remove(obj);
+            return;
+          }
+
+          // Extract special objects (forms, links)
+          if (obj.pdfMeta && obj.pdfMeta.type === "form-field") {
+            formObjects.push({
+              ...obj.toObject(["pdfMeta"]),
+              left: (obj.left || 0) * scaleFactor,
+              top: (obj.top || 0) * scaleFactor,
+              width: obj.getScaledWidth() * scaleFactor,
+              height: obj.getScaledHeight() * scaleFactor,
+              pdfMeta: obj.pdfMeta,
+            });
+            tempFabricCanvas.remove(obj); // Don't burn into image
+            return;
+          }
+
+          if (obj.pdfMeta && obj.pdfMeta.type === "link") {
+            linkObjects.push({
+              ...obj.toObject(["pdfMeta"]),
+              left: (obj.left || 0) * scaleFactor,
+              top: (obj.top || 0) * scaleFactor,
+              width: obj.getScaledWidth() * scaleFactor,
+              height: obj.getScaledHeight() * scaleFactor,
+              pdfMeta: obj.pdfMeta,
+            });
+            tempFabricCanvas.remove(obj); // Don't burn into image
+            return;
+          }
+
+          obj.scaleX = (obj.scaleX || 1) * scaleFactor;
+          obj.scaleY = (obj.scaleY || 1) * scaleFactor;
+          obj.left = (obj.left || 0) * scaleFactor;
+          obj.top = (obj.top || 0) * scaleFactor;
+          obj.setCoords();
+        });
+
+        tempFabricCanvas.renderAll();
+
+        // Use PNG for transparency (required for overlays)
+        // Optimized multiplier (1.0) and PNG format to keep size minimal
+        const dataUrl = tempFabricCanvas.toDataURL({
+          format: "png",
+          multiplier: 2,
+        });
+
+        const embeddedImage = await newPdfDoc.embedPng(
+          await fetch(dataUrl).then((r) => r.arrayBuffer()),
+        );
+
+        copiedPage.drawImage(embeddedImage, {
+          x: 0,
+          y: 0,
+          width: currentPdfWidth,
+          height: currentPdfHeight,
+        });
+
+        // --- Process Forms ---
+        if (formObjects.length > 0) {
+          const form = newPdfDoc.getForm();
+          formObjects.forEach((obj) => {
+            const { left, top, width, height, pdfMeta } = obj;
+            // PDF coordinates: (0,0) is bottom-left. Fabric: (0,0) is top-left.
+            // y = pageHeight - top - height
+            const pdfY = currentPdfHeight - top - height;
+
+            if (pdfMeta.fieldType === "text") {
+              const textField = form.createTextField(pdfMeta.name);
+              textField.setText("Enter text");
+              textField.addToPage(copiedPage, {
+                x: left,
+                y: pdfY,
+                width,
+                height,
+              });
+            } else if (pdfMeta.fieldType === "checkbox") {
+              const checkBox = form.createCheckBox(pdfMeta.name);
+              checkBox.addToPage(copiedPage, {
+                x: left,
+                y: pdfY,
+                width,
+                height,
+              });
+            } else if (pdfMeta.fieldType === "radio") {
+              // Radio groups are complex, simplistic implementation for now
+              // Ideally we group by name, but here unique names are generated
+              const radioGroup = form.createRadioGroup(pdfMeta.name);
+              radioGroup.addOptionToPage("Yes", copiedPage, {
+                x: left,
+                y: pdfY,
+                width,
+                height,
+              });
+            }
+          });
+        }
+
+        // --- Process Links ---
+        if (linkObjects.length > 0) {
+          linkObjects.forEach((obj) => {
+            const { left, top, width, height, pdfMeta } = obj;
+            const pdfY = currentPdfHeight - top - height;
+
+            // Create Link Annotation
+            // pdf-lib doesn't have a high-level `addLink` for external URLs easily accessible on `page`
+            // but we can add an annotation.
+
+            // Actually, creating a link annotation via low-level objects
+            const linkAnnot = newPdfDoc.context.obj({
+              Type: "Annot",
+              Subtype: "Link",
+              Rect: [left, pdfY, left + width, pdfY + height],
+              Border: [0, 0, 2], // Blue border
+              C: [0, 0, 1], // Color blue
+              A: {
+                Type: "Action",
+                S: "URI",
+                URI: pdfMeta.url,
+              },
+            });
+
+            const linkRef = newPdfDoc.context.register(linkAnnot);
+
+            let annots = copiedPage.node.Annots();
+            if (!annots) {
+              annots = newPdfDoc.context.obj([]);
+              copiedPage.node.set(PDFName.of("Annots"), annots);
+            }
+            annots.push(linkRef);
+          });
+        }
+
+        // Clean up
+        tempFabricCanvas.dispose();
+      }
+    }
+
+    return await newPdfDoc.save();
+  };
+
+  const handleDownloadPDF = async () => {
     try {
-      if (!originalPdfSource) return toast.error("No PDF loaded");
-
       setIsLoading(true);
-      saveCurrentPageState(pageNumber);
+      const pdfBytes = await generateFinalPdf();
 
-      const existingPdfBytes = await getOriginalPdfBytes(originalPdfSource);
-      const originalPdfDoc = await PDFDocument.load(existingPdfBytes);
-      const newPdfDoc = await PDFDocument.create();
-
-      // Determine modified pages and SIGNIFICANT objects
-      const modifiedStates: Record<string, any> = {};
-      for (const [id, state] of Object.entries(pageCanvasDataRef.current)) {
-        const parsed = JSON.parse(state);
-        if (
-          parsed.objects &&
-          parsed.objects.some((obj: any) => !obj.isHitbox)
-        ) {
-          modifiedStates[id] = state;
-        }
-      }
-
-      // Batch copy ALL pages at once (extremely fast even for 1000+ pages)
-      const allIndices = pages.map((p) => p.page - 1);
-      const copiedPages = await newPdfDoc.copyPages(originalPdfDoc, allIndices);
-
-      for (let i = 0; i < copiedPages.length; i++) {
-        const copiedPage = copiedPages[i];
-        newPdfDoc.addPage(copiedPage);
-
-        const item = pages[i];
-        const savedState = modifiedStates[item.id];
-
-        if (savedState) {
-          const tempCanvasEl = document.createElement("canvas");
-          const { width: currentPdfWidth, height: currentPdfHeight } =
-            copiedPage.getSize();
-
-          // Set canvas to EXACT PDF point dimensions for perfect mapping
-          tempCanvasEl.width = currentPdfWidth;
-          tempCanvasEl.height = currentPdfHeight;
-          const tempFabricCanvas = new Canvas(tempCanvasEl);
-
-          // Calculate scale factor relative to screen dimensions
-          const scaleFactor = currentPdfWidth / pdfSize.width;
-
-          await tempFabricCanvas.loadFromJSON(savedState);
-
-          // Scale objects from screen space to PDF point space and remove hitboxes
-          const objects = tempFabricCanvas.getObjects();
-          const formObjects: any[] = [];
-          const linkObjects: any[] = [];
-
-          objects.forEach((obj: any) => {
-            if (obj.isHitbox) {
-              tempFabricCanvas.remove(obj);
-              return;
-            }
-
-            // Extract special objects (forms, links)
-            if (obj.pdfMeta && obj.pdfMeta.type === "form-field") {
-              formObjects.push({
-                ...obj.toObject(["pdfMeta"]),
-                left: (obj.left || 0) * scaleFactor,
-                top: (obj.top || 0) * scaleFactor,
-                width: obj.getScaledWidth() * scaleFactor,
-                height: obj.getScaledHeight() * scaleFactor,
-                pdfMeta: obj.pdfMeta,
-              });
-              tempFabricCanvas.remove(obj); // Don't burn into image
-              return;
-            }
-
-            if (obj.pdfMeta && obj.pdfMeta.type === "link") {
-              linkObjects.push({
-                ...obj.toObject(["pdfMeta"]),
-                left: (obj.left || 0) * scaleFactor,
-                top: (obj.top || 0) * scaleFactor,
-                width: obj.getScaledWidth() * scaleFactor,
-                height: obj.getScaledHeight() * scaleFactor,
-                pdfMeta: obj.pdfMeta,
-              });
-              tempFabricCanvas.remove(obj); // Don't burn into image
-              return;
-            }
-
-            obj.scaleX = (obj.scaleX || 1) * scaleFactor;
-            obj.scaleY = (obj.scaleY || 1) * scaleFactor;
-            obj.left = (obj.left || 0) * scaleFactor;
-            obj.top = (obj.top || 0) * scaleFactor;
-            obj.setCoords();
-          });
-
-          tempFabricCanvas.renderAll();
-
-          // Use PNG for transparency (required for overlays)
-          // Optimized multiplier (1.0) and PNG format to keep size minimal
-          const dataUrl = tempFabricCanvas.toDataURL({
-            format: "png",
-            multiplier: 2,
-          });
-
-          const embeddedImage = await newPdfDoc.embedPng(
-            await fetch(dataUrl).then((r) => r.arrayBuffer()),
-          );
-
-          copiedPage.drawImage(embeddedImage, {
-            x: 0,
-            y: 0,
-            width: currentPdfWidth,
-            height: currentPdfHeight,
-          });
-
-          // --- Process Forms ---
-          if (formObjects.length > 0) {
-            const form = newPdfDoc.getForm();
-            formObjects.forEach((obj) => {
-              const { left, top, width, height, pdfMeta } = obj;
-              // PDF coordinates: (0,0) is bottom-left. Fabric: (0,0) is top-left.
-              // y = pageHeight - top - height
-              const pdfY = currentPdfHeight - top - height;
-
-              if (pdfMeta.fieldType === "text") {
-                const textField = form.createTextField(pdfMeta.name);
-                textField.setText("Enter text");
-                textField.addToPage(copiedPage, {
-                  x: left,
-                  y: pdfY,
-                  width,
-                  height,
-                });
-              } else if (pdfMeta.fieldType === "checkbox") {
-                const checkBox = form.createCheckBox(pdfMeta.name);
-                checkBox.addToPage(copiedPage, {
-                  x: left,
-                  y: pdfY,
-                  width,
-                  height,
-                });
-              } else if (pdfMeta.fieldType === "radio") {
-                // Radio groups are complex, simplistic implementation for now
-                // Ideally we group by name, but here unique names are generated
-                const radioGroup = form.createRadioGroup(pdfMeta.name);
-                radioGroup.addOptionToPage("Yes", copiedPage, {
-                  x: left,
-                  y: pdfY,
-                  width,
-                  height,
-                });
-              }
-            });
-          }
-
-          // --- Process Links ---
-          if (linkObjects.length > 0) {
-            linkObjects.forEach((obj) => {
-              const { left, top, width, height, pdfMeta } = obj;
-              const pdfY = currentPdfHeight - top - height;
-
-              // Create Link Annotation
-              // pdf-lib doesn't have a high-level `addLink` for external URLs easily accessible on `page`
-              // but we can add an annotation.
-
-              // Actually, creating a link annotation via low-level objects
-              const linkAnnot = newPdfDoc.context.obj({
-                Type: "Annot",
-                Subtype: "Link",
-                Rect: [left, pdfY, left + width, pdfY + height],
-                Border: [0, 0, 2], // Blue border
-                C: [0, 0, 1], // Color blue
-                A: {
-                  Type: "Action",
-                  S: "URI",
-                  URI: pdfMeta.url,
-                },
-              });
-
-              const linkRef = newPdfDoc.context.register(linkAnnot);
-
-              let annots = copiedPage.node.Annots();
-              if (!annots) {
-                annots = newPdfDoc.context.obj([]);
-                copiedPage.node.set(PDFName.of("Annots"), annots);
-              }
-              annots.push(linkRef);
-            });
-          }
-
-          // Clean up
-          tempFabricCanvas.dispose();
-        }
-      }
-
-      const pdfBytes = await newPdfDoc.save();
-
-      // if (onSave) {
-      //   onSave(pdfBytes, fileName);
-      //   setIsLoading(false);
-      //   return;
-      // }
-
+      // Default behavior: download file
       const url = URL.createObjectURL(
         new Blob([pdfBytes as any], { type: "application/pdf" }),
       );
@@ -1508,7 +1529,22 @@ function PdfEditor({
       link.href = url;
       link.download = fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`;
       link.click();
-      toast.success("Document saved successfully!");
+      toast.success("Document downloaded successfully!");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to download document");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCustomSave = async () => {
+    if (!onSave) return;
+    try {
+      setIsLoading(true);
+      const pdfBytes = await generateFinalPdf();
+      onSave(pdfBytes, fileName);
+      toast.success("Document saved!");
     } catch (e) {
       console.error(e);
       toast.error("Failed to save document");
@@ -1560,6 +1596,8 @@ function PdfEditor({
   const addImageToCanvas = (url: string, options: any = {}) => {
     const canvas = pdfOverlayFabricRef.current;
     if (!canvas) return;
+    const { x, y } = getCanvasVisibleOrigin();
+
     FabricImage.fromURL(url).then((img) => {
       // Calculate a smaller size (e.g., max 200px width/height)
       const maxSize = 200;
@@ -1573,8 +1611,8 @@ function PdfEditor({
       }
 
       img.set({
-        left: 100,
-        top: 100,
+        left: x + 100,
+        top: y + 100,
         scaleX: scaleX,
         scaleY: scaleY,
         ...options,
@@ -1617,7 +1655,9 @@ function PdfEditor({
 
       {/* Header */}
       <Header
-        onSave={handleSaveDocument}
+        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+        onSave={onSave ? handleCustomSave : undefined}
+        onDownload={handleDownloadPDF}
         onUpload={handleFileUpload}
         onExportImage={handleExportPageAsImage}
         pageNumber={pageNumber}
@@ -1826,8 +1866,20 @@ function PdfEditor({
               </button>
             </div>
 
+            {/* Mobile Backdrop */}
+            {isSidebarOpen && (
+              <div
+                className="fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity"
+                onClick={() => setIsSidebarOpen(false)}
+              />
+            )}
+
             {/* Left Sidebar Container */}
-            <div className="w-[20%] h-full flex flex-col border-r border-gray-200 bg-gray-50 z-20">
+            <div
+              className={`fixed inset-y-0 left-0 z-40 h-full bg-gray-50 border-r border-gray-200 transition-transform duration-300 ease-in-out w-[80%] max-w-[320px] md:relative md:translate-x-0 md:w-[20%] md:max-w-none md:flex md:flex-col ${
+                isSidebarOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
+              }`}
+            >
               <div className="flex items-center border-b border-gray-200 bg-white">
                 <button
                   className={`flex-1 py-2 text-xs font-medium uppercase tracking-wide ${
@@ -1875,7 +1927,7 @@ function PdfEditor({
             </div>
 
             {/* PDF Body Container */}
-            <div className="w-[80%] h-full">
+            <div className="w-full md:w-[80%] h-full">
               <PDFBody
                 currentPage={pageNumber}
                 zoom={zoomScale}

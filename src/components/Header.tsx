@@ -11,10 +11,14 @@ import {
   Upload,
   Image as ImageIcon,
   ChevronDown,
+  Menu,
+  Save,
+  Download,
 } from "lucide-react";
 
 interface HeaderProps {
-  onSave: () => void;
+  onSave?: () => void;
+  onDownload: () => void;
   onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onExportImage: () => void;
   pageNumber: number;
@@ -24,10 +28,12 @@ interface HeaderProps {
   onRestore: (data: any) => void;
   fileName: string;
   onBack?: () => void;
+  onToggleSidebar?: () => void;
 }
 
 export const Header = ({
   onSave,
+  onDownload,
   onUpload,
   onExportImage,
   pageNumber,
@@ -37,6 +43,7 @@ export const Header = ({
   onRestore,
   fileName,
   onBack,
+  onToggleSidebar,
 }: HeaderProps) => {
   const [showVersions, setShowVersions] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -98,6 +105,14 @@ export const Header = ({
   return (
     <div className="w-full h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-50 relative">
       <div className="flex items-center gap-4">
+        {/* Mobile Sidebar Toggle */}
+        <button
+          onClick={onToggleSidebar}
+          className="md:hidden p-2 hover:bg-gray-100 rounded-lg text-gray-700 transition-colors"
+        >
+          <Menu size={20} />
+        </button>
+
         {onBack && (
           <button
             onClick={onBack}
@@ -119,15 +134,15 @@ export const Header = ({
 
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-2 text-gray-700 hover:bg-gray-100 px-3 py-2 rounded-lg font-medium transition-colors"
+          className="flex items-center gap-2 text-gray-700 hover:bg-gray-100 px-2 sm:px-3 py-2 rounded-lg font-medium transition-colors"
         >
           <Upload size={18} className="text-blue-500" />
-          <span className="text-sm">Open</span>
+          <span className="text-sm hidden sm:inline">Open</span>
         </button>
 
-        <div className="h-6 w-px bg-gray-200" />
+        <div className="h-6 w-px bg-gray-200 hidden sm:block" />
 
-        <div className="flex items-center gap-2">
+        <div className="hidden md:flex items-center gap-2">
           <FileText size={20} className="text-blue-600" />
           <span className="font-medium text-gray-900 truncate max-w-[200px]">
             {fileName}
@@ -140,7 +155,7 @@ export const Header = ({
       </div>
 
       {/* CENTER: Pagination */}
-      <div className="flex items-center gap-6">
+      <div className="hidden md:flex items-center gap-6">
         <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
           <span className="text-xs text-gray-500 uppercase font-semibold">
             Page
@@ -254,13 +269,13 @@ export const Header = ({
               setShowExport(!showExport);
               if (showVersions) setShowVersions(false);
             }}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold shadow-lg transition-all active:scale-[0.98] ${
+            className={`flex items-center gap-2 px-3 sm:px-5 py-2.5 rounded-xl font-bold shadow-lg transition-all active:scale-[0.98] ${
               showExport
                 ? "bg-blue-700 text-white shadow-blue-500/20"
                 : "bg-blue-600 text-white shadow-blue-500/30 hover:bg-blue-700 hover:scale-[1.02]"
             }`}
           >
-            <span className="text-sm">Export</span>
+            <span className="text-sm hidden sm:inline">Export</span>
             <ChevronDown
               size={14}
               className={`transition-transform duration-200 ${
@@ -277,15 +292,37 @@ export const Header = ({
             }`}
           >
             <div className="p-2 space-y-1">
+              {onSave && (
+                <button
+                  onClick={() => {
+                    onSave();
+                    setShowExport(false);
+                  }}
+                  className="w-full text-left p-3 hover:bg-gray-50 rounded-xl flex items-center gap-3 transition-all group"
+                >
+                  <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center group-hover:bg-green-100 transition-colors">
+                    <Save size={20} className="text-green-600" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-gray-900">
+                      Save Document
+                    </div>
+                    <div className="text-[11px] text-gray-500 font-medium">
+                      Save changes to database
+                    </div>
+                  </div>
+                </button>
+              )}
+
               <button
                 onClick={() => {
-                  onSave();
+                  onDownload();
                   setShowExport(false);
                 }}
                 className="w-full text-left p-3 hover:bg-gray-50 rounded-xl flex items-center gap-3 transition-all group"
               >
                 <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center group-hover:bg-blue-100 transition-colors">
-                  <FileText size={20} className="text-blue-600" />
+                  <Download size={20} className="text-blue-600" />
                 </div>
                 <div>
                   <div className="text-sm font-bold text-gray-900">

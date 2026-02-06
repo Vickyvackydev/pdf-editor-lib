@@ -103,7 +103,7 @@ export const CustomDropdown = ({
           createPortal(
             <div
               id={`dropdown-menu-${label}`}
-              className="fixed bg-white border border-gray-300 rounded-lg shadow-lg z-[9999] overflow-hidden max-h-60 overflow-y-auto"
+              className="fixed bg-white border  border-gray-300 rounded-lg shadow-lg z-9999 overflow-hidden max-h-60 overflow-y-auto"
               style={{
                 top: position.top,
                 left: position.left,
@@ -130,7 +130,7 @@ export const CustomDropdown = ({
                 </button>
               ))}
             </div>,
-            document.body
+            document.body,
           )}
       </div>
     </div>

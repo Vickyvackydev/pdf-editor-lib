@@ -1,6 +1,6 @@
 {
-  "name": "pdf-editor-lib",
-  "version": "0.1.0",
+  "name": "@vicky-dev/pdf-editor-lib",
+  "version": "0.1.1",
   "type": "module",
   "main": "./dist/pdf-editor.umd.js",
   "module": "./dist/pdf-editor.es.js",
@@ -10,9 +10,11 @@
   ],
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/pdf-editor.es.js",
       "require": "./dist/pdf-editor.umd.js"
-    }
+    },
+    "./dist/pdf-editor-lib.css": "./dist/pdf-editor-lib.css"
   },
   "scripts": {
     "dev": "vite",

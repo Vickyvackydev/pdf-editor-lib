@@ -1,28 +1,28 @@
-import { Toaster } from "react-hot-toast";
+import { ToastContainer } from "../components/Toast";
 import { useState } from "react";
 import PdfEditor from "../components/PdfEditor";
 
 function DemoEditor() {
   const [showEditor, setShowEditor] = useState(false);
 
-  const handleSave = (pdfBytes: Uint8Array, fileName: string) => {
-    console.log("Saved PDF bytes:", pdfBytes.length);
+  // const handleSave = (pdfBytes: Uint8Array, fileName: string) => {
+  //   console.log("Saved PDF bytes:", pdfBytes.length);
 
-    // Trigger actual download
-    const blob = new Blob([pdfBytes as any], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  //   // Trigger actual download
+  //   const blob = new Blob([pdfBytes as any], { type: "application/pdf" });
+  //   const url = URL.createObjectURL(blob);
+  //   const link = document.createElement("a");
+  //   link.href = url;
+  //   link.download = fileName.endsWith(".pdf") ? fileName : `${fileName}.pdf`;
+  //   document.body.appendChild(link);
+  //   link.click();
+  //   document.body.removeChild(link);
+  //   URL.revokeObjectURL(url);
 
-    alert(
-      `Saved ${fileName} with ${pdfBytes.length} bytes! Check console for details.`,
-    );
-  };
+  //   alert(
+  //     `Saved ${fileName} with ${pdfBytes.length} bytes! Check console for details.`,
+  //   );
+  // };
 
   const handleBack = () => {
     setShowEditor(false);
@@ -31,10 +31,10 @@ function DemoEditor() {
   if (showEditor) {
     return (
       <>
-        <Toaster position="top-left" />
+        <ToastContainer />
         <PdfEditor
-          onSave={handleSave}
           onBack={handleBack}
+
           // You can pass a fileUrl here if you want to preload one
           // fileUrl="https://pdfobject.com/pdf/sample.pdf"
         />

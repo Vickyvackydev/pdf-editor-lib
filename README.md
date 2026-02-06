@@ -1,73 +1,78 @@
-# React + TypeScript + Vite
+# PDF Editor Library
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A powerful, responsive, and easy-to-use PDF Editor component for React applications. Built with `react-pdf`, `pdf-lib`, and `fabric.js`.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Full PDF Editing**: Add text, drawings, shapes, and images to any PDF page.
+- **Page Management**: Reorder, duplicate, and delete pages using drag-and-drop.
+- **Undo/Redo**: Full history support for all actions.
+- **Responsive Design**: Mobile-friendly interface with collapsible sidebar and adaptive toolbar.
+- **Customizable**: Pass initial file URL, file name, and handle save/back actions.
+- **Version History**: Auto-saves versions in local storage for easy restoration.
 
-## React Compiler
+## Installation
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install @vicky-dev/pdf-editor-lib
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Usage
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Import the component and the CSS file in your React application:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```tsx
+import React, { useState } from 'react';
+import PdfEditor from '@vicky-dev/pdf-editor-lib';
+import '@vicky-dev/pdf-editor-lib/dist/pdf-editor-lib.css';
+
+function App() {
+  const [showEditor, setShowEditor] = useState(true);
+
+  const handleSave = (pdfBytes: Uint8Array, fileName: string) => {
+    // You can upload the bytes to your server here
+    console.log('Saved PDF!', pdfBytes.byteLength);
+    
+    // Or trigger a download manually if you want custom behavior
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+  };
+
+  const handleBack = () => {
+    console.log('Back button clicked');
+    setShowEditor(false);
+  };
+
+  if (!showEditor) return <button onClick={() => setShowEditor(true)}>Open Editor</button>;
+
+  return (
+    <div style={{ height: '100vh', width: '100%' }}>
+      <PdfEditor
+        fileUrl="https://pdfobject.com/pdf/sample.pdf" // Optional: Load a PDF by default
+        fileName="MyDocument.pdf" // Optional: Default filename
+        onSave={handleSave} // Optional: Handle save action
+        onBack={handleBack} // Optional: Show back button
+      />
+    </div>
+  );
+}
+
+export default App;
 ```
+
+## Props
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `fileUrl` | `string` | (Optional) URL of the PDF to load initially. |
+| `fileName` | `string` | (Optional) Default name for the file when saving. Defaults to "Document.pdf". |
+| `onSave` | `(pdfBytes: Uint8Array, fileName: string) => void` | (Optional) Callback triggered when the user clicks "Save". If provided, the default download behavior is prevented, and you receive the raw PDF bytes. |
+| `onBack` | `() => void` | (Optional) Callback triggered when the user clicks the "Back" button in the header. If not provided, the back button is hidden. |
+
+## License
+
+MIT

@@ -45,11 +45,11 @@ export const PDFBody = ({
 }) => {
   return (
     <div
-      className="w-full h-full overflow-auto bg-gray-100 p-8"
+      className="w-full h-full overflow-auto bg-gray-100 dark:bg-gray-900/50 p-2 md:p-8 transition-colors"
       ref={viewerRef}
     >
       <div
-        className="mx-auto bg-white shadow-lg relative"
+        className="mx-auto bg-white shadow-lg relative transition-all"
         ref={pdfPageRef}
         style={{ maxWidth: "850px", width: "fit-content" }}
       >
@@ -71,7 +71,7 @@ export const PDFBody = ({
         </Document>
         {contextMenu.text && (
           <div
-            className="absolute bg-white shadow-xl border rounded-md p-2 text-sm z-99999"
+            className="absolute bg-white dark:bg-gray-800 shadow-xl border border-gray-200 dark:border-gray-700 rounded-md p-2 text-sm z-50 min-w-[150px]"
             style={{ left: contextMenu.x, top: contextMenu.y }}
           >
             <button
@@ -82,7 +82,7 @@ export const PDFBody = ({
                   hideContextMenu,
                 )
               }
-              className="block px-3 py-1 hover:bg-gray-100 w-full text-left"
+              className="block px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 w-full text-left rounded-md text-gray-700 dark:text-gray-200"
             >
               Edit Text
             </button>
@@ -95,7 +95,7 @@ export const PDFBody = ({
                   hideContextMenu,
                 )
               }
-              className="block px-3 py-1 hover:bg-gray-100 w-full text-left"
+              className="block px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 w-full text-left rounded-md text-gray-700 dark:text-gray-200"
             >
               Mask Text
             </button>
@@ -105,7 +105,7 @@ export const PDFBody = ({
                 navigator.clipboard.writeText(contextMenu.text.str);
                 hideContextMenu();
               }}
-              className="block px-3 py-1 hover:bg-gray-100 w-full text-left"
+              className="block px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 w-full text-left rounded-md text-gray-700 dark:text-gray-200"
             >
               Copy Text
             </button>
@@ -118,18 +118,9 @@ export const PDFBody = ({
                   hideContextMenu,
                 )
               }
-              className="block px-3 py-1 hover:bg-gray-100 w-full text-left"
+              className="block px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 w-full text-left rounded-md text-gray-700 dark:text-gray-200"
             >
               Replace Text
-            </button>
-
-            <button
-              onClick={() =>
-                navigator.clipboard.writeText(contextMenu.text.str)
-              }
-              className="block px-3 py-1 hover:bg-gray-100 w-full text-left"
-            >
-              Copy Text
             </button>
           </div>
         )}

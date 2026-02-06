@@ -18,7 +18,6 @@ import {
   Circle,
   Square,
   Check,
-  X,
   Edit3,
 } from "lucide-react";
 import React, { useState, useRef, useEffect } from "react";
@@ -121,6 +120,12 @@ export const Toolbar = ({
   // History State
   const [recentImages, setRecentImages] = useState<string[]>([]);
   const [recentSignatures, setRecentSignatures] = useState<string[]>([]);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const [signatureModal, setSignatureModal] = useState<{
+    isOpen: boolean;
+    original: string | null;
+    transparent: string | null;
+  }>({ isOpen: false, original: null, transparent: null });
 
   useEffect(() => {
     const savedImages = localStorage.getItem("recentImages");
@@ -136,17 +141,6 @@ export const Toolbar = ({
     key: string,
   ) => {
     const newList = [url, ...list.filter((u) => u !== url)].slice(0, 5);
-    setList(newList);
-    localStorage.setItem(key, JSON.stringify(newList));
-  };
-
-  const deleteFromRecent = (
-    url: string,
-    list: string[],
-    setList: (l: string[]) => void,
-    key: string,
-  ) => {
-    const newList = list.filter((u) => u !== url);
     setList(newList);
     localStorage.setItem(key, JSON.stringify(newList));
   };
@@ -167,6 +161,30 @@ export const Toolbar = ({
     setActiveDropdown(null);
   };
 
+  const handleSignatureSelection = (selected: string) => {
+    addImageToCanvas(selected, { scaleX: 0.3, scaleY: 0.3 });
+    if (signatureModal.original) {
+      addToRecent(
+        signatureModal.original,
+        recentSignatures,
+        setRecentSignatures,
+        "recentSignatures",
+      );
+    }
+    if (
+      signatureModal.transparent &&
+      signatureModal.transparent !== signatureModal.original
+    ) {
+      addToRecent(
+        signatureModal.transparent,
+        recentSignatures,
+        setRecentSignatures,
+        "recentSignatures",
+      );
+    }
+    setSignatureModal({ isOpen: false, original: null, transparent: null });
+  };
+
   const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -174,29 +192,12 @@ export const Toolbar = ({
     reader.onload = async (f) => {
       const data = f.target?.result as string;
       if (data) {
-        // Ask user or default to transparent?
-        // For now, we'll process it and save both original and transparent in history?
-        // Or just place it. User asked for option.
-        // We'll simulate option by just doing it or asking in a future UI.
-        // For this version, we'll auto-remove background as requested "give it a transparent background"
         const transparent = await removeBackground(data);
-
-        // We can add the transparent one
-        addImageToCanvas(transparent, { scaleX: 0.3, scaleY: 0.3 });
-
-        // Add both to recent so user can choose original if they want
-        addToRecent(
-          data,
-          recentSignatures,
-          setRecentSignatures,
-          "recentSignatures",
-        );
-        addToRecent(
-          transparent,
-          recentSignatures,
-          setRecentSignatures,
-          "recentSignatures",
-        );
+        setSignatureModal({
+          isOpen: true,
+          original: data,
+          transparent: transparent,
+        });
       }
     };
     reader.readAsDataURL(file);
@@ -204,8 +205,14 @@ export const Toolbar = ({
     setActiveDropdown(null);
   };
 
-  const toggleDropdown = (id: string) => {
-    setActiveDropdown(activeDropdown === id ? null : id);
+  const toggleDropdown = (e: React.MouseEvent, id: string) => {
+    if (activeDropdown === id) {
+      setActiveDropdown(null);
+    } else {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setDropdownPosition({ top: rect.bottom + 8, left: rect.left });
+      setActiveDropdown(id);
+    }
   };
 
   // Close dropdowns on outside click
@@ -228,633 +235,724 @@ export const Toolbar = ({
   ];
 
   return (
-    <div className="w-full bg-white border-b border-gray-200 px-2 py-1.5 flex items-center justify-between gap-2 shadow-sm z-40 relative">
-      {/* Left Tools Group */}
-      <div className="flex items-center gap-0.5">
-        {/* TEXT TOOL */}
-        <div className="relative toolbar-dropdown">
-          <button
-            onClick={() => {
-              setActiveTool("text");
-              handleAddText?.();
-              setActiveDropdown(activeDropdown === "text" ? null : "text");
-            }}
-            className={`px-3 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-              activeTool === "text"
-                ? "bg-blue-50 text-blue-600"
-                : "text-gray-700 hover:bg-gray-50"
-            }`}
-          >
-            <Type size={18} />
-            <span className="text-sm font-medium">Text</span>
-            <ChevronDown size={14} className="text-gray-400" />
-          </button>
+    <div className="w-full bg-white border-b border-gray-200 shadow-sm z-40 relative overflow-x-auto no-scrollbar">
+      <div className="flex items-center justify-between gap-2 px-2 py-1.5 min-w-max">
+        {/* Left Tools Group */}
+        <div className="flex items-center gap-0.5">
+          {/* TEXT TOOL */}
+          <div className="relative toolbar-dropdown">
+            <button
+              onClick={(e) => {
+                setActiveTool("text");
+                handleAddText?.();
+                toggleDropdown(e, "text");
+              }}
+              className={`px-3 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                activeTool === "text"
+                  ? "bg-blue-50 text-blue-600"
+                  : "text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <Type size={18} />
+              <span className="text-sm font-medium">Text</span>
+              <ChevronDown size={14} className="text-gray-400" />
+            </button>
 
-          {activeDropdown === "text" && (
-            <div className="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-100 p-4 flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 z-50">
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Text Properties
-              </div>
-
-              <div className="flex items-center justify-between gap-2">
-                <select
-                  value={fontFamily?.split(" ")[0] || "Arial"}
-                  onChange={(e) => setFontFamily?.(e.target.value)}
-                  className="flex-1 h-9 px-2 text-sm border border-gray-200 rounded-lg focus:border-blue-500 outline-none"
-                >
-                  {fontOptions.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={fontSize}
-                  onChange={(e) => setFontSize?.(e.target.value)}
-                  className="w-20 h-9 px-2 text-sm border border-gray-200 rounded-lg focus:border-blue-500 outline-none"
-                >
-                  {[8, 10, 12, 14, 16, 18, 24, 36, 48, 72].map((s) => (
-                    <option key={s} value={s}>
-                      {s}px
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex gap-1 bg-gray-50 p-1 rounded-lg">
-                  <button
-                    onClick={() => toggleTextStyle("fontWeight")}
-                    className="p-1.5 hover:bg-white rounded shadow-sm transition-all"
-                  >
-                    <span className="font-bold text-sm">B</span>
-                  </button>
-                  <button
-                    onClick={() => toggleTextStyle("fontStyle")}
-                    className="p-1.5 hover:bg-white rounded shadow-sm transition-all"
-                  >
-                    <span className="italic text-sm">I</span>
-                  </button>
-                  <button
-                    onClick={() => toggleTextStyle("underline")}
-                    className="p-1.5 hover:bg-white rounded shadow-sm transition-all"
-                  >
-                    <span className="underline text-sm">U</span>
-                  </button>
+            {activeDropdown === "text" && (
+              <div
+                className="fixed w-72 bg-white rounded-xl shadow-xl border border-gray-100 p-4 flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 z-[100]"
+                style={{
+                  top: dropdownPosition.top,
+                  left: dropdownPosition.left,
+                }}
+              >
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Text Properties
                 </div>
-                <div className="flex gap-1">
-                  {colors.slice(0, 5).map((c) => (
+
+                <div className="flex items-center justify-between gap-2">
+                  <select
+                    value={fontFamily?.split(" ")[0] || "Arial"}
+                    onChange={(e) => setFontFamily?.(e.target.value)}
+                    className="flex-1 h-9 px-2 text-sm border border-gray-200 rounded-lg focus:border-blue-500 outline-none"
+                  >
+                    {fontOptions.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={fontSize}
+                    onChange={(e) => setFontSize?.(e.target.value)}
+                    className="w-20 h-9 px-2 text-sm border border-gray-200 rounded-lg focus:border-blue-500 outline-none"
+                  >
+                    {[8, 10, 12, 14, 16, 18, 24, 36, 48, 72].map((s) => (
+                      <option key={s} value={s}>
+                        {s}px
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex gap-1 bg-gray-50 p-1 rounded-lg">
                     <button
-                      key={c}
-                      onClick={() => {
-                        updateActiveText({ fill: c });
-                        setSelectedColor(c);
-                      }}
-                      className={`w-6 h-6 rounded-full border border-gray-200 ${selectedColor === c ? "ring-2 ring-blue-500 ring-offset-1" : ""}`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* EDIT TEXT TOOL */}
-        <div className="relative toolbar-dropdown">
-          <button
-            onClick={() => {
-              setActiveTool("edit");
-              onEnterEditMode?.();
-              setActiveDropdown(activeDropdown === "edit" ? null : "edit");
-            }}
-            className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
-              activeTool === "edit"
-                ? "bg-blue-50 text-blue-600"
-                : "text-gray-700 hover:bg-gray-50"
-            }`}
-          >
-            <Edit3 size={18} />
-            <span className="text-sm font-medium whitespace-nowrap">
-              Edit Text
-            </span>
-            <ChevronDown size={14} className="text-gray-400" />
-          </button>
-
-          {activeDropdown === "edit" && (
-            <div className="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-100 p-4 flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 z-50">
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                Edit Text Properties
-              </div>
-
-              <div className="flex items-center justify-between gap-2">
-                <select
-                  value={fontFamily?.split(" ")[0] || "Arial"}
-                  onChange={(e) => {
-                    const font = e.target.value;
-                    setFontFamily?.(font);
-                    updateActiveText?.({ fontFamily: font });
-                  }}
-                  className="flex-1 h-9 px-2 text-sm border border-gray-200 rounded-lg focus:border-blue-500 outline-none"
-                >
-                  {fontOptions.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={fontSize}
-                  onChange={(e) => {
-                    const size = e.target.value;
-                    setFontSize?.(size);
-                    updateActiveText?.({ fontSize: Number(size) });
-                  }}
-                  className="w-20 h-9 px-2 text-sm border border-gray-200 rounded-lg focus:border-blue-500 outline-none"
-                >
-                  {[8, 10, 12, 14, 16, 18, 24, 36, 48, 72].map((s) => (
-                    <option key={s} value={s}>
-                      {s}px
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex gap-1 bg-gray-50 p-1 rounded-lg">
-                  <button
-                    onClick={() => toggleTextStyle("fontWeight")}
-                    className="p-1.5 hover:bg-white rounded shadow-sm transition-all"
-                  >
-                    <span className="font-bold text-sm">B</span>
-                  </button>
-                  <button
-                    onClick={() => toggleTextStyle("fontStyle")}
-                    className="p-1.5 hover:bg-white rounded shadow-sm transition-all"
-                  >
-                    <span className="italic text-sm">I</span>
-                  </button>
-                  <button
-                    onClick={() => toggleTextStyle("underline")}
-                    className="p-1.5 hover:bg-white rounded shadow-sm transition-all"
-                  >
-                    <span className="underline text-sm">U</span>
-                  </button>
-                </div>
-                <div className="flex gap-1">
-                  {colors.slice(0, 5).map((c) => (
+                      onClick={() => toggleTextStyle("fontWeight")}
+                      className="p-1.5 hover:bg-white rounded shadow-sm transition-all"
+                    >
+                      <span className="font-bold text-sm">B</span>
+                    </button>
                     <button
-                      key={c}
-                      onClick={() => {
-                        updateActiveText({ fill: c });
-                        setSelectedColor(c);
-                      }}
-                      className={`w-6 h-6 rounded-full border border-gray-200 ${selectedColor === c ? "ring-2 ring-blue-500 ring-offset-1" : ""}`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* LINKS */}
-        <button
-          onClick={() => {
-            setActiveTool("link");
-            activateLinkMode();
-          }}
-          className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
-            activeTool === "link"
-              ? "bg-blue-50 text-blue-600"
-              : "text-gray-700 hover:bg-gray-50"
-          }`}
-        >
-          <LinkIcon size={18} />
-          <span className="text-sm font-medium whitespace-nowrap">Links</span>
-        </button>
-
-        {/* FORMS */}
-        <div className="relative toolbar-dropdown">
-          <button
-            onClick={() => toggleDropdown("forms")}
-            className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
-              activeDropdown === "forms"
-                ? "bg-blue-50 text-blue-600"
-                : "text-gray-700 hover:bg-gray-50"
-            }`}
-          >
-            <FileText size={18} />
-            <span className="text-sm font-medium whitespace-nowrap">Forms</span>
-            <ChevronDown size={14} className="text-gray-400" />
-          </button>
-
-          {activeDropdown === "forms" && (
-            <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-50 animate-in fade-in slide-in-from-top-2">
-              <button
-                onClick={() => {
-                  handleAddField("text");
-                  setActiveDropdown(null);
-                }}
-                className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
-              >
-                <Type size={16} /> Text Field
-              </button>
-              <button
-                onClick={() => {
-                  handleAddField("checkbox");
-                  setActiveDropdown(null);
-                }}
-                className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
-              >
-                <Check size={16} /> Checkbox
-              </button>
-              <button
-                onClick={() => {
-                  handleAddField("radio");
-                  setActiveDropdown(null);
-                }}
-                className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
-              >
-                <Circle size={16} /> Radio Button
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="w-px h-6 bg-gray-200 mx-1" />
-
-        {/* IMAGES */}
-        <div className="relative toolbar-dropdown">
-          <button
-            onClick={() => toggleDropdown("image")}
-            className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
-              activeDropdown === "image"
-                ? "bg-blue-50 text-blue-600"
-                : "text-gray-700 hover:bg-gray-50"
-            }`}
-          >
-            <ImageIcon size={18} />
-            <span className="text-sm font-medium whitespace-nowrap">
-              Images
-            </span>
-            <ChevronDown size={14} className="text-gray-400" />
-          </button>
-
-          {activeDropdown === "image" && (
-            <div className="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-50 animate-in fade-in slide-in-from-top-2">
-              <button
-                onClick={() => imageInputRef.current?.click()}
-                className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
-              >
-                <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
-                  <Plus size={16} />
-                </div>
-                <div>
-                  <div className="font-medium">New Image</div>
-                  <div className="text-xs text-gray-400">
-                    Upload from computer
+                      onClick={() => toggleTextStyle("fontStyle")}
+                      className="p-1.5 hover:bg-white rounded shadow-sm transition-all"
+                    >
+                      <span className="italic text-sm">I</span>
+                    </button>
+                    <button
+                      onClick={() => toggleTextStyle("underline")}
+                      className="p-1.5 hover:bg-white rounded shadow-sm transition-all"
+                    >
+                      <span className="underline text-sm">U</span>
+                    </button>
                   </div>
-                </div>
-              </button>
-
-              {recentImages.length > 0 && (
-                <>
-                  <div className="my-2 border-t border-gray-100" />
-                  <div className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
-                    Recent
-                  </div>
-                  <div className="grid grid-cols-4 gap-2 px-2">
-                    {recentImages.map((src, i) => (
+                  <div className="flex gap-1">
+                    {colors.slice(0, 5).map((c) => (
                       <button
-                        key={i}
+                        key={c}
                         onClick={() => {
-                          addImageToCanvas(src);
-                          setActiveDropdown(null);
+                          updateActiveText({ fill: c });
+                          setSelectedColor(c);
                         }}
-                        className="aspect-square rounded-lg border border-gray-200 overflow-hidden hover:border-blue-500 hover:ring-2 ring-blue-100 transition-all relative group bg-gray-50"
-                      >
-                        <img
-                          src={src}
-                          className="w-full h-full object-contain"
-                          alt="recent"
-                        />
-                        <div
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteFromRecent(
-                              src,
-                              recentImages,
-                              setRecentImages,
-                              "recentImages",
-                            );
-                          }}
-                          className="absolute top-0.5 right-0.5 bg-white rounded-full p-0.5 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 text-gray-400 hover:text-red-500 border border-gray-100"
-                        >
-                          <X size={10} />
-                        </div>
-                      </button>
+                        className={`w-6 h-6 rounded-full border border-gray-200 ${selectedColor === c ? "ring-2 ring-blue-500 ring-offset-1" : ""}`}
+                        style={{ backgroundColor: c }}
+                      />
                     ))}
                   </div>
-                </>
-              )}
-            </div>
-          )}
-          <input
-            type="file"
-            ref={imageInputRef}
-            onChange={handleImageUpload}
-            accept="image/*"
-            className="hidden"
-          />
-        </div>
-
-        {/* REDACT */}
-        <button
-          onClick={() => handleAddShape("redact")}
-          className="px-2 py-1.5 text-gray-700 hover:bg-gray-50 rounded-lg flex items-center gap-1.5"
-        >
-          <Square size={18} fill="black" />
-          <span className="text-sm font-medium whitespace-nowrap">Redact</span>
-        </button>
-
-        {/* WHITEOUT */}
-        <div className="relative toolbar-dropdown">
-          <button
-            onClick={() => toggleDropdown("sign")}
-            className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
-              activeDropdown === "sign"
-                ? "bg-blue-50 text-blue-600"
-                : "text-gray-700 hover:bg-gray-50"
-            }`}
-          >
-            <PenTool size={18} />
-            <span className="text-sm font-medium whitespace-nowrap">Sign</span>
-            <ChevronDown size={14} className="text-gray-400" />
-          </button>
-
-          {activeDropdown === "sign" && (
-            <div className="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-50 animate-in fade-in slide-in-from-top-2">
-              <button
-                onClick={() => signatureInputRef.current?.click()}
-                className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
-              >
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
-                  <Upload size={16} />
                 </div>
-                <div>
-                  <div className="font-medium">Upload Signature</div>
-                  <div className="text-xs text-gray-400">
-                    Auto-removes background
-                  </div>
-                </div>
-              </button>
+              </div>
+            )}
+          </div>
 
-              <button
-                onClick={() => {
-                  setActiveTool("draw");
-                  activateDrawMode();
-                  setActiveDropdown(null);
+          {/* EDIT TEXT TOOL */}
+          <div className="relative toolbar-dropdown">
+            <button
+              onClick={(e) => {
+                setActiveTool("edit");
+                onEnterEditMode?.();
+                toggleDropdown(e, "edit");
+              }}
+              className={`px-2 py-1.5 rounded-b-lg flex items-center gap-1.5 transition-colors ${
+                activeTool === "edit"
+                  ? "bg-blue-50 text-blue-600"
+                  : "text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <Edit3 size={18} />
+              <span className="text-sm font-medium whitespace-nowrap">
+                Edit Text
+              </span>
+              <ChevronDown size={14} className="text-gray-400" />
+            </button>
+
+            {activeDropdown === "edit" && (
+              <div
+                className="fixed w-72 bg-white rounded-b-lg shadow-xl border border-gray-100 p-4 flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 z-[100]"
+                style={{
+                  top: dropdownPosition.top,
+                  left: dropdownPosition.left,
                 }}
-                className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
               >
-                <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center text-purple-600">
-                  <Pen size={16} />
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Edit Text Properties
                 </div>
-                <div>
-                  <div className="font-medium">Draw Signature</div>
-                  <div className="text-xs text-gray-400">
-                    Use mouse or touch
-                  </div>
-                </div>
-              </button>
 
-              {recentSignatures.length > 0 && (
-                <>
-                  <div className="my-2 border-t border-gray-100" />
-                  <div className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
-                    Recent
+                <div className="flex items-center justify-between gap-2">
+                  <select
+                    value={fontFamily?.split(" ")[0] || "Arial"}
+                    onChange={(e) => {
+                      const font = e.target.value;
+                      setFontFamily?.(font);
+                      updateActiveText?.({ fontFamily: font });
+                    }}
+                    className="flex-1 h-9 px-2 text-sm border border-gray-200 rounded-lg focus:border-blue-500 outline-none"
+                  >
+                    {fontOptions.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={fontSize}
+                    onChange={(e) => {
+                      const size = e.target.value;
+                      setFontSize?.(size);
+                      updateActiveText?.({ fontSize: Number(size) });
+                    }}
+                    className="w-20 h-9 px-2 text-sm border border-gray-200 rounded-lg focus:border-blue-500 outline-none"
+                  >
+                    {[8, 10, 12, 14, 16, 18, 24, 36, 48, 72].map((s) => (
+                      <option key={s} value={s}>
+                        {s}px
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex gap-1 bg-gray-50 p-1 rounded-lg">
+                    <button
+                      onClick={() => toggleTextStyle("fontWeight")}
+                      className="p-1.5 hover:bg-white rounded shadow-sm transition-all"
+                    >
+                      <span className="font-bold text-sm">B</span>
+                    </button>
+                    <button
+                      onClick={() => toggleTextStyle("fontStyle")}
+                      className="p-1.5 hover:bg-white rounded shadow-sm transition-all"
+                    >
+                      <span className="italic text-sm">I</span>
+                    </button>
+                    <button
+                      onClick={() => toggleTextStyle("underline")}
+                      className="p-1.5 hover:bg-white rounded shadow-sm transition-all"
+                    >
+                      <span className="underline text-sm">U</span>
+                    </button>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 px-2">
-                    {recentSignatures.map((src, i) => (
+                  <div className="flex gap-1">
+                    {colors.slice(0, 5).map((c) => (
                       <button
-                        key={i}
+                        key={c}
                         onClick={() => {
-                          addImageToCanvas(src, { scaleX: 0.3, scaleY: 0.3 });
-                          setActiveDropdown(null);
+                          updateActiveText({ fill: c });
+                          setSelectedColor(c);
                         }}
-                        className="h-12 rounded-lg border border-gray-200 overflow-hidden hover:border-blue-500 hover:ring-2 ring-blue-100 transition-all bg-white p-1 relative group"
-                      >
-                        <img
-                          src={src}
-                          className="w-full h-full object-contain"
-                          alt="signature"
-                        />
-                        <div
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteFromRecent(
-                              src,
-                              recentSignatures,
-                              setRecentSignatures,
-                              "recentSignatures",
-                            );
-                          }}
-                          className="absolute top-0.5 right-0.5 bg-white rounded-full p-0.5 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 text-gray-400 hover:text-red-500 border border-gray-100"
-                        >
-                          <X size={10} />
-                        </div>
-                      </button>
+                        className={`w-6 h-6 rounded-full border border-gray-200 ${selectedColor === c ? "ring-2 ring-blue-500 ring-offset-1" : ""}`}
+                        style={{ backgroundColor: c }}
+                      />
                     ))}
                   </div>
-                </>
-              )}
-            </div>
-          )}
-          <input
-            type="file"
-            ref={signatureInputRef}
-            onChange={handleSignatureUpload}
-            accept="image/*"
-            className="hidden"
-          />
-        </div>
+                </div>
+              </div>
+            )}
+          </div>
 
-        {/* WHITEOUT */}
-        <button
-          onClick={() => handleAddShape("whiteout")}
-          className="px-2 py-1.5 text-gray-700 hover:bg-gray-50 rounded-lg flex items-center gap-1.5"
-        >
-          <Eraser size={18} />
-          <span className="text-sm font-medium whitespace-nowrap">
-            Whiteout
-          </span>
-        </button>
-
-        {/* ANNOTATE */}
-        <div className="relative toolbar-dropdown">
+          {/* LINKS */}
           <button
-            onClick={() => toggleDropdown("annotate")}
+            onClick={() => {
+              setActiveTool("link");
+              activateLinkMode();
+            }}
             className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
-              activeDropdown === "annotate" || activeTool === "highlight"
+              activeTool === "link"
                 ? "bg-blue-50 text-blue-600"
                 : "text-gray-700 hover:bg-gray-50"
             }`}
           >
-            <Highlighter size={18} />
-            <span className="text-sm font-medium whitespace-nowrap">
-              Annotate
-            </span>
-            <ChevronDown size={14} className="text-gray-400" />
+            <LinkIcon size={18} />
+            <span className="text-sm font-medium whitespace-nowrap">Links</span>
           </button>
 
-          {activeDropdown === "annotate" && (
-            <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-50 animate-in fade-in slide-in-from-top-2">
-              <button
-                onClick={() => {
-                  setActiveTool("highlight");
-                  activateHighlightMode();
-                  setActiveDropdown(null);
-                }}
-                className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
-              >
-                <Highlighter size={16} /> Highlight Text
-              </button>
-              <button
-                onClick={() => {
-                  handleAddShape("note");
-                  setActiveDropdown(null);
-                }}
-                className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
-              >
-                <div className="w-4 h-4 bg-yellow-200 border border-yellow-400 rounded-sm" />
-                Sticky Note
-              </button>
-            </div>
-          )}
-        </div>
+          {/* FORMS */}
+          <div className="relative toolbar-dropdown">
+            <button
+              onClick={(e) => toggleDropdown(e, "forms")}
+              className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
+                activeDropdown === "forms"
+                  ? "bg-blue-50 text-blue-600"
+                  : "text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <FileText size={18} />
+              <span className="text-sm font-medium whitespace-nowrap">
+                Forms
+              </span>
+              <ChevronDown size={14} className="text-gray-400" />
+            </button>
 
-        {/* DRAWING CONTROLS */}
-        {activeTool === "draw" && (
-          <div className="flex items-center gap-2 ml-2 px-2 py-1 bg-gray-50 rounded-lg border border-gray-200 animate-in fade-in slide-in-from-left-2">
-            <div className="text-xs font-semibold text-gray-400 uppercase mr-1">
-              Pen
-            </div>
-            <div className="flex gap-1">
-              {colors.map((c) => (
+            {activeDropdown === "forms" && (
+              <div
+                className="fixed w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-[100] animate-in fade-in slide-in-from-top-2"
+                style={{
+                  top: dropdownPosition.top,
+                  left: dropdownPosition.left,
+                }}
+              >
                 <button
-                  key={c}
-                  onClick={() => setPenColor?.(c)}
-                  className={`w-5 h-5 rounded-full border border-gray-200 ${
-                    penColor === c ? "ring-2 ring-blue-500 ring-offset-1" : ""
-                  }`}
-                  style={{ backgroundColor: c }}
+                  onClick={() => {
+                    handleAddField("text");
+                    setActiveDropdown(null);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
+                >
+                  <Type size={16} /> Text Field
+                </button>
+                <button
+                  onClick={() => {
+                    handleAddField("checkbox");
+                    setActiveDropdown(null);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
+                >
+                  <Check size={16} /> Checkbox
+                </button>
+                <button
+                  onClick={() => {
+                    handleAddField("radio");
+                    setActiveDropdown(null);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
+                >
+                  <Circle size={16} /> Radio Button
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="w-px h-6 bg-gray-200 mx-1" />
+
+          {/* IMAGES */}
+          <div className="relative toolbar-dropdown">
+            <button
+              onClick={(e) => toggleDropdown(e, "image")}
+              className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
+                activeDropdown === "image"
+                  ? "bg-blue-50 text-blue-600"
+                  : "text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <ImageIcon size={18} />
+              <span className="text-sm font-medium whitespace-nowrap">
+                Images
+              </span>
+              <ChevronDown size={14} className="text-gray-400" />
+            </button>
+
+            {activeDropdown === "image" && (
+              <div
+                className="fixed w-64 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-[100] animate-in fade-in slide-in-from-top-2"
+                style={{
+                  top: dropdownPosition.top,
+                  left: dropdownPosition.left,
+                }}
+              >
+                <button
+                  onClick={() => imageInputRef.current?.click()}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
+                    <Plus size={16} />
+                  </div>
+                  <div>
+                    <div className="font-medium">New Image</div>
+                    <div className="text-xs text-gray-400">
+                      Upload from computer
+                    </div>
+                  </div>
+                </button>
+
+                {recentImages.length > 0 && (
+                  <>
+                    <div className="my-2 border-t border-gray-100" />
+                    <div className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                      Recent
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 px-2">
+                      {recentImages.map((src, i) => (
+                        <button
+                          key={i}
+                          onClick={() => {
+                            addImageToCanvas(src);
+                            setActiveDropdown(null);
+                          }}
+                          className="aspect-square rounded-lg border border-gray-200 overflow-hidden hover:border-blue-500 hover:ring-2 ring-blue-100 transition-all relative group bg-gray-50"
+                        >
+                          <img
+                            src={src}
+                            className="w-full h-full object-contain"
+                            alt="recent"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            <input
+              type="file"
+              ref={imageInputRef}
+              onChange={handleImageUpload}
+              accept="image/*"
+              className="hidden"
+            />
+          </div>
+
+          {/* REDACT */}
+          <button
+            onClick={() => handleAddShape("redact")}
+            className="px-2 py-1.5 text-gray-700 hover:bg-gray-50 rounded-lg flex items-center gap-1.5"
+          >
+            <Square size={18} fill="black" />
+            <span className="text-sm font-medium whitespace-nowrap">
+              Redact
+            </span>
+          </button>
+
+          {/* WHITEOUT */}
+          <div className="relative toolbar-dropdown">
+            <button
+              onClick={(e) => toggleDropdown(e, "sign")}
+              className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
+                activeDropdown === "sign"
+                  ? "bg-blue-50 text-blue-600"
+                  : "text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <PenTool size={18} />
+              <span className="text-sm font-medium whitespace-nowrap">
+                Sign
+              </span>
+              <ChevronDown size={14} className="text-gray-400" />
+            </button>
+
+            {activeDropdown === "sign" && (
+              <div
+                className="fixed w-64 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-[100] animate-in fade-in slide-in-from-top-2"
+                style={{
+                  top: dropdownPosition.top,
+                  left: dropdownPosition.left,
+                }}
+              >
+                <button
+                  onClick={() => signatureInputRef.current?.click()}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
+                    <Upload size={16} />
+                  </div>
+                  <div>
+                    <div className="font-medium">Upload Signature</div>
+                    <div className="text-xs text-gray-400">
+                      Auto-removes background
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setActiveTool("draw");
+                    activateDrawMode();
+                    setActiveDropdown(null);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center text-purple-600">
+                    <Pen size={16} />
+                  </div>
+                  <div>
+                    <div className="font-medium">Draw Signature</div>
+                    <div className="text-xs text-gray-400">
+                      Use mouse or touch
+                    </div>
+                  </div>
+                </button>
+
+                {recentSignatures.length > 0 && (
+                  <>
+                    <div className="my-2 border-t border-gray-100" />
+                    <div className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                      Recent
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 px-2">
+                      {recentSignatures.map((src, i) => (
+                        <button
+                          key={i}
+                          onClick={() => {
+                            addImageToCanvas(src, { scaleX: 0.3, scaleY: 0.3 });
+                            setActiveDropdown(null);
+                          }}
+                          className="h-12 rounded-lg border border-gray-200 overflow-hidden hover:border-blue-500 hover:ring-2 ring-blue-100 transition-all bg-white p-1"
+                        >
+                          <img
+                            src={src}
+                            className="w-full h-full object-contain"
+                            alt="signature"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            <input
+              type="file"
+              ref={signatureInputRef}
+              onChange={handleSignatureUpload}
+              accept="image/*"
+              className="hidden"
+            />
+          </div>
+
+          {/* WHITEOUT */}
+          <button
+            onClick={() => handleAddShape("whiteout")}
+            className="px-2 py-1.5 text-gray-700 hover:bg-gray-50 rounded-lg flex items-center gap-1.5"
+          >
+            <Eraser size={18} />
+            <span className="text-sm font-medium whitespace-nowrap">
+              Whiteout
+            </span>
+          </button>
+
+          {/* ANNOTATE */}
+          <div className="relative toolbar-dropdown">
+            <button
+              onClick={(e) => toggleDropdown(e, "annotate")}
+              className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
+                activeDropdown === "annotate" || activeTool === "highlight"
+                  ? "bg-blue-50 text-blue-600"
+                  : "text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <Highlighter size={18} />
+              <span className="text-sm font-medium whitespace-nowrap">
+                Annotate
+              </span>
+              <ChevronDown size={14} className="text-gray-400" />
+            </button>
+
+            {activeDropdown === "annotate" && (
+              <div
+                className="fixed w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-[100] animate-in fade-in slide-in-from-top-2"
+                style={{
+                  top: dropdownPosition.top,
+                  left: dropdownPosition.left,
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setActiveTool("highlight");
+                    activateHighlightMode();
+                    setActiveDropdown(null);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
+                >
+                  <Highlighter size={16} /> Highlight Text
+                </button>
+                <button
+                  onClick={() => {
+                    handleAddShape("note");
+                    setActiveDropdown(null);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
+                >
+                  <div className="w-4 h-4 bg-yellow-200 border border-yellow-400 rounded-sm" />
+                  Sticky Note
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* DRAWING CONTROLS */}
+          {activeTool === "draw" && (
+            <div className="flex items-center gap-2 ml-2 px-2 py-1 bg-gray-50 rounded-lg border border-gray-200 animate-in fade-in slide-in-from-left-2">
+              <div className="text-xs font-semibold text-gray-400 uppercase mr-1">
+                Pen
+              </div>
+              <div className="flex gap-1">
+                {colors.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setPenColor?.(c)}
+                    className={`w-5 h-5 rounded-full border border-gray-200 ${
+                      penColor === c ? "ring-2 ring-blue-500 ring-offset-1" : ""
+                    }`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
+              <div className="w-px h-4 bg-gray-300 mx-1" />
+              <div className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  value={penSize}
+                  onChange={(e) => setPenSize?.(parseInt(e.target.value))}
+                  className="w-16 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                 />
-              ))}
+                <div className="w-3 h-3 rounded-full bg-gray-400" />
+              </div>
             </div>
-            <div className="w-px h-4 bg-gray-300 mx-1" />
-            <div className="flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-gray-400" />
-              <input
-                type="range"
-                min="1"
-                max="10"
-                value={penSize}
-                onChange={(e) => setPenSize?.(parseInt(e.target.value))}
-                className="w-16 h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-              />
-              <div className="w-3 h-3 rounded-full bg-gray-400" />
+          )}
+
+          {/* SHAPES */}
+          <div className="relative toolbar-dropdown">
+            <button
+              onClick={(e) => toggleDropdown(e, "shapes")}
+              className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
+                activeDropdown === "shapes"
+                  ? "bg-blue-50 text-blue-600"
+                  : "text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <Shapes size={18} />
+              <span className="text-sm font-medium whitespace-nowrap">
+                Shapes
+              </span>
+              <ChevronDown size={14} className="text-gray-400" />
+            </button>
+
+            {activeDropdown === "shapes" && (
+              <div
+                className="fixed w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-[100] animate-in fade-in slide-in-from-top-2"
+                style={{
+                  top: dropdownPosition.top,
+                  left: dropdownPosition.left,
+                }}
+              >
+                <button
+                  onClick={() => {
+                    handleAddShape("rect");
+                    setActiveDropdown(null);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
+                >
+                  <Square size={16} /> Rectangle
+                </button>
+                <button
+                  onClick={() => {
+                    handleAddShape("circle");
+                    setActiveDropdown(null);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
+                >
+                  <Circle size={16} /> Ellipse
+                </button>
+                <button
+                  onClick={() => {
+                    handleAddShape("line");
+                    setActiveDropdown(null);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
+                >
+                  <Minus size={16} /> Line
+                </button>
+                <button
+                  onClick={() => {
+                    handleAddShape("arrow");
+                    setActiveDropdown(null);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
+                >
+                  <ArrowRight size={16} /> Arrow
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {signatureModal.isOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl p-6 max-w-lg w-full animate-in zoom-in-95 duration-200">
+              <h3 className="text-lg font-bold text-gray-900 mb-4">
+                Choose Signature Version
+              </h3>
+              <p className="text-sm text-gray-500 mb-6">
+                We created a transparent version of your signature. Please
+                select the one you want to use.
+              </p>
+
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                {/* Original */}
+                <div
+                  onClick={() =>
+                    signatureModal.original &&
+                    handleSignatureSelection(signatureModal.original)
+                  }
+                  className="cursor-pointer group relative rounded-xl border-2 border-gray-200 hover:border-blue-500 hover:bg-blue-50 transition-all p-4 flex flex-col items-center gap-3"
+                >
+                  <div className="w-full aspect-video bg-gray-100 rounded-lg overflow-hidden flex items-center justify-center">
+                    <img
+                      src={signatureModal.original || ""}
+                      alt="Original"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  </div>
+                  <span className="font-medium text-gray-700 group-hover:text-blue-700">
+                    Original
+                  </span>
+                </div>
+
+                {/* Transparent */}
+                <div
+                  onClick={() =>
+                    signatureModal.transparent &&
+                    handleSignatureSelection(signatureModal.transparent)
+                  }
+                  className="cursor-pointer group relative rounded-xl border-2 border-gray-200 hover:border-blue-500 hover:bg-blue-50 transition-all p-4 flex flex-col items-center gap-3"
+                >
+                  <div className="w-full aspect-video bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAMUlEQVQ4T2NkYGAQYcAP3uCTZhw1gGGYhAGBZIA/nYDCgBDAm9BGDWCEAvjyMGLQLADA66aa/KB01AAAAABJRU5ErkJggg==')] rounded-lg overflow-hidden flex items-center justify-center">
+                    <img
+                      src={signatureModal.transparent || ""}
+                      alt="Transparent"
+                      className="max-w-full max-h-full object-contain"
+                    />
+                  </div>
+                  <span className="font-medium text-gray-700 group-hover:text-blue-700">
+                    Transparent
+                  </span>
+                </div>
+              </div>
+
+              <button
+                onClick={() =>
+                  setSignatureModal({
+                    isOpen: false,
+                    original: null,
+                    transparent: null,
+                  })
+                }
+                className="w-full py-2.5 text-gray-500 hover:bg-gray-100 rounded-lg font-medium transition-colors"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         )}
 
-        {/* SHAPES */}
-        <div className="relative toolbar-dropdown">
-          <button
-            onClick={() => toggleDropdown("shapes")}
-            className={`px-2 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
-              activeDropdown === "shapes"
-                ? "bg-blue-50 text-blue-600"
-                : "text-gray-700 hover:bg-gray-50"
-            }`}
-          >
-            <Shapes size={18} />
-            <span className="text-sm font-medium whitespace-nowrap">
-              Shapes
-            </span>
-            <ChevronDown size={14} className="text-gray-400" />
-          </button>
-
-          {activeDropdown === "shapes" && (
-            <div className="absolute top-full left-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-50 animate-in fade-in slide-in-from-top-2">
-              <button
-                onClick={() => {
-                  handleAddShape("rect");
-                  setActiveDropdown(null);
-                }}
-                className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
-              >
-                <Square size={16} /> Rectangle
-              </button>
-              <button
-                onClick={() => {
-                  handleAddShape("circle");
-                  setActiveDropdown(null);
-                }}
-                className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
-              >
-                <Circle size={16} /> Ellipse
-              </button>
-              <button
-                onClick={() => {
-                  handleAddShape("line");
-                  setActiveDropdown(null);
-                }}
-                className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
-              >
-                <Minus size={16} /> Line
-              </button>
-              <button
-                onClick={() => {
-                  handleAddShape("arrow");
-                  setActiveDropdown(null);
-                }}
-                className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-3 text-sm text-gray-700"
-              >
-                <ArrowRight size={16} /> Arrow
-              </button>
-            </div>
+        {/* Right Tools Group (Undo/Redo) */}
+        <div className="flex items-center gap-1 border-l border-gray-200 pl-2">
+          {activeTool === "draw" && (
+            <button
+              onClick={onFinishDrawing}
+              className="px-3 py-1.5 bg-blue-600 text-white rounded-lg flex items-center gap-1.5 hover:bg-blue-700 transition-colors text-sm font-bold shadow-sm mr-2"
+            >
+              <Check size={16} />
+              <span className="whitespace-nowrap">Done Drawing</span>
+            </button>
           )}
-        </div>
-      </div>
 
-      {/* Right Tools Group (Undo/Redo) */}
-      <div className="flex items-center gap-1 border-l border-gray-200 pl-2">
-        {activeTool === "draw" && (
           <button
-            onClick={onFinishDrawing}
-            className="px-3 py-1.5 bg-blue-600 text-white rounded-lg flex items-center gap-1.5 hover:bg-blue-700 transition-colors text-sm font-bold shadow-sm mr-2"
+            onClick={onUndo}
+            className="p-2 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors"
+            title="Undo"
           >
-            <Check size={16} />
-            <span className="whitespace-nowrap">Done Drawing</span>
+            <Undo size={18} />
           </button>
-        )}
-
-        <button
-          onClick={onUndo}
-          className="p-2 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors"
-          title="Undo"
-        >
-          <Undo size={18} />
-        </button>
-        <button
-          onClick={onRedo}
-          className="p-2 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors"
-          title="Redo"
-        >
-          <Redo size={18} />
-        </button>
+          <button
+            onClick={onRedo}
+            className="p-2 hover:bg-gray-100 rounded-lg text-gray-600 transition-colors"
+            title="Redo"
+          >
+            <Redo size={18} />
+          </button>
+        </div>
       </div>
     </div>
   );
