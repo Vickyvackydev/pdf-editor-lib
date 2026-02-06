@@ -22,35 +22,37 @@ npm install @vicky-dev/pdf-editor-lib
 Import the component and the CSS file in your React application:
 
 ```tsx
-import React, { useState } from 'react';
-import PdfEditor from '@vicky-dev/pdf-editor-lib';
-import '@vicky-dev/pdf-editor-lib/dist/pdf-editor-lib.css';
+import React, { useState } from "react";
+import PdfEditor, { ToastContainer } from "@vicky-dev/pdf-editor-lib";
+import "@vicky-dev/pdf-editor-lib/dist/pdf-editor-lib.css";
 
 function App() {
   const [showEditor, setShowEditor] = useState(true);
 
   const handleSave = (pdfBytes: Uint8Array, fileName: string) => {
     // You can upload the bytes to your server here
-    console.log('Saved PDF!', pdfBytes.byteLength);
-    
+    console.log("Saved PDF!", pdfBytes.byteLength);
+
     // Or trigger a download manually if you want custom behavior
-    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const blob = new Blob([pdfBytes], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
+    const link = document.createElement("a");
     link.href = url;
     link.download = fileName;
     link.click();
   };
 
   const handleBack = () => {
-    console.log('Back button clicked');
+    console.log("Back button clicked");
     setShowEditor(false);
   };
 
-  if (!showEditor) return <button onClick={() => setShowEditor(true)}>Open Editor</button>;
+  if (!showEditor)
+    return <button onClick={() => setShowEditor(true)}>Open Editor</button>;
 
   return (
-    <div style={{ height: '100vh', width: '100%' }}>
+    <div style={{ height: "100vh", width: "100%" }}>
+      <ToastContainer />
       <PdfEditor
         fileUrl="https://pdfobject.com/pdf/sample.pdf" // Optional: Load a PDF by default
         fileName="MyDocument.pdf" // Optional: Default filename
@@ -66,12 +68,12 @@ export default App;
 
 ## Props
 
-| Prop | Type | Description |
-|------|------|-------------|
-| `fileUrl` | `string` | (Optional) URL of the PDF to load initially. |
-| `fileName` | `string` | (Optional) Default name for the file when saving. Defaults to "Document.pdf". |
-| `onSave` | `(pdfBytes: Uint8Array, fileName: string) => void` | (Optional) Callback triggered when the user clicks "Save". If provided, the default download behavior is prevented, and you receive the raw PDF bytes. |
-| `onBack` | `() => void` | (Optional) Callback triggered when the user clicks the "Back" button in the header. If not provided, the back button is hidden. |
+| Prop       | Type                                               | Description                                                                                                                                                                               |
+| ---------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fileUrl`  | `string`                                           | (Optional) URL of the PDF to load initially.                                                                                                                                              |
+| `fileName` | `string`                                           | (Optional) Default name for the file when saving. Defaults to "Document.pdf".                                                                                                             |
+| `onSave`   | `(pdfBytes: Uint8Array, fileName: string) => void` | (Optional) Callback triggered when the user clicks "Save Document". If provided, a "Save Document" button appears in the dropdown. The default "Download PDF" option is always available. |
+| `onBack`   | `() => void`                                       | (Optional) Callback triggered when the user clicks the "Back" button in the header. If not provided, the back button is hidden.                                                           |
 
 ## License
 
